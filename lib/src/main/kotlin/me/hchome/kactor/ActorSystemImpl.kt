@@ -123,20 +123,20 @@ private class BaseActor(
                 try {
                     handlerScope(handler, context, message, sender)
                 } catch (e: Throwable) {
-                    fetalHandling(e, message, sender)
+                    fatalHandling(e, message, sender)
                 }
             }
         }
     }
 
-    private fun fetalHandling(e: Throwable, message: Any, sender: ActorRef) {
+    private fun fatalHandling(e: Throwable, message: Any, sender: ActorRef) {
         (actorSystem as ActorSystemImpl).notifySystem(
-            sender, ref, "Fetal message: $message",
-            notificationType = ActorSystemNotificationMessage.NotificationType.ACTOR_FETAL, e
+            sender, ref, "Fatal message: $message",
+            notificationType = ActorSystemNotificationMessage.NotificationType.ACTOR_FATAL, e
         )
         if(singleton) {
             mailbox.close(e)
-            this.cancel("Fetal message: $message", e)
+            this.cancel("Fatal message: $message", e)
             actorSystem.destroyActor(ref)
         }
     }
@@ -418,7 +418,7 @@ private fun ActorSystemImpl.notifySystem(
         ActorSystemNotificationMessage.NotificationType.ACTOR_CREATED,
         ActorSystemNotificationMessage.NotificationType.ACTOR_DESTROYED -> ActorSystemNotificationMessage.MessageLevel.INFO
 
-        ActorSystemNotificationMessage.NotificationType.ACTOR_FETAL -> ActorSystemNotificationMessage.MessageLevel.ERROR
+        ActorSystemNotificationMessage.NotificationType.ACTOR_FATAL -> ActorSystemNotificationMessage.MessageLevel.ERROR
     }
     val notification = ActorSystemNotificationMessage(sender, receiver, level, message, throwable)
     launch {

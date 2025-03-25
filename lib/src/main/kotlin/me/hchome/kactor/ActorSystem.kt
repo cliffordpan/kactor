@@ -235,7 +235,7 @@ data class ActorSystemNotificationMessage(
      * Notification type
      */
     enum class NotificationType {
-        ACTOR_CREATED, ACTOR_DESTROYED, ACTOR_EXCEPTION, ACTOR_FETAL, ACTOR_MESSAGE, MESSAGE_UNDELIVERED
+        ACTOR_CREATED, ACTOR_DESTROYED, ACTOR_EXCEPTION, ACTOR_FATAL, ACTOR_MESSAGE, MESSAGE_UNDELIVERED
     }
 
     /**
