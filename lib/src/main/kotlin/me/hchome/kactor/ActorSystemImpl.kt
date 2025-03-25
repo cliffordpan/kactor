@@ -214,18 +214,18 @@ private class BaseActor(
             config: ActorConfig,
             handlerCreator: ActorHandlerCreator
         ): ActorRef {
-            if(self.singleton) throw ActorSystemException("Can't create a child for a singleton actor")
+            if (self.singleton) throw ActorSystemException("Can't create a child for a singleton actor")
             return system.actorOf(dispatcher, id, self.ref, config, handlerCreator)
         }
 
-       override fun createNew(
-           dispatcher: CoroutineDispatcher?,
-           id: String?,
-           config: ActorConfig,
-           handlerCreator: ActorHandlerCreator
-       ): ActorRef {
-           return system.actorOf(dispatcher, id, ActorRef.EMPTY, config, handlerCreator)
-       }
+        override fun createNew(
+            dispatcher: CoroutineDispatcher?,
+            id: String?,
+            config: ActorConfig,
+            handlerCreator: ActorHandlerCreator
+        ): ActorRef {
+            return system.actorOf(dispatcher, id, ActorRef.EMPTY, config, handlerCreator)
+        }
     }
 
     private data class MessageWrapper(val message: Any, val sender: ActorRef)
@@ -278,6 +278,15 @@ private class ActorSystemImpl private constructor(dispatcher: CoroutineDispatche
 
     override fun getServices(): Set<ActorRef> {
         return actors.entries.filter { it.value.singleton }.map { it.key }.toSet()
+    }
+
+    override fun <Handler : ActorHandler> getService(kClass: KClass<Handler>): ActorRef? {
+        return actors.entries.firstOrNull {
+            it.key.handler == kClass &&
+                    it.key.actorId == "$kClass" &&
+                    it.value.singleton &&
+                    kClass.isInstance(it.value.handler)
+        }?.key
     }
 
     @OptIn(ExperimentalUuidApi::class)
@@ -419,7 +428,8 @@ private fun ActorSystemImpl.notifySystem(
 /**
  * context function get actor context from coroutine context
  */
-suspend fun ActorHandler.context(): ActorContext = coroutineContext[ActorContextHolder]?.context ?: throw ActorSystemException("No context")
+suspend fun ActorHandler.context(): ActorContext =
+    coroutineContext[ActorContextHolder]?.context ?: throw ActorSystemException("No context")
 
 /**
  * Attributes implementation for actor context

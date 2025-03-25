@@ -205,7 +205,11 @@ interface ActorSystem: DisposableHandle {
 
     fun send(actorRef: ActorRef, message: Any) = send(actorRef, ActorRef.EMPTY, message)
 
+    fun <Handler: ActorHandler> getService(kClass: KClass<Handler>): ActorRef?
+
 }
+
+inline fun <reified Handler: ActorHandler> ActorSystem.getService(): ActorRef? = getService(Handler::class)
 
 /**
  * Actor handler - business logic for an actor
