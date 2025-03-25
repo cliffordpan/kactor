@@ -134,9 +134,11 @@ private class BaseActor(
             sender, ref, "Fetal message: $message",
             notificationType = ActorSystemNotificationMessage.NotificationType.ACTOR_FETAL, e
         )
-        mailbox.close(e)
-        this.cancel("Fetal message: $message", e)
-        actorSystem.destroyActor(ref)
+        if(singleton) {
+            mailbox.close(e)
+            this.cancel("Fetal message: $message", e)
+            actorSystem.destroyActor(ref)
+        }
     }
 
 
