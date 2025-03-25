@@ -206,7 +206,7 @@ fabric.properties
 
 # CMake
 cmake-build-*/
-
+.aws
 # Mongo Explorer plugin
 .idea/**/mongoSettings.xml
 
