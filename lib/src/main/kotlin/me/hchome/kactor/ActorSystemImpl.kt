@@ -140,7 +140,8 @@ private class BaseActor(
     }
 
 
-    private data class ActorContextImpl(private val self: BaseActor, private val system: ActorSystem) : ActorContext, Attributes by AttributesImpl() {
+    private data class ActorContextImpl(private val self: BaseActor, private val system: ActorSystem) : ActorContext,
+        Attributes by AttributesImpl() {
 
         override val services: Set<ActorRef>
             get() = system.getServices()
@@ -159,12 +160,18 @@ private class BaseActor(
         }
 
         override fun sendChildren(message: Any) {
+            if (self.singleton) {
+                return
+            }
             self.childrenRefs.forEach {
                 system.send(it, self.ref, message)
             }
         }
 
         override fun sendChild(childRef: ActorRef, message: Any) {
+            if (self.singleton) {
+                return
+            }
             self.childrenRefs.firstOrNull { it == childRef }?.also {
                 system.send(it, self.ref, message)
             }
@@ -207,8 +214,18 @@ private class BaseActor(
             config: ActorConfig,
             handlerCreator: ActorHandlerCreator
         ): ActorRef {
+            if(self.singleton) throw ActorSystemException("Can't create a child for a singleton actor")
             return system.actorOf(dispatcher, id, self.ref, config, handlerCreator)
         }
+
+       override fun createNew(
+           dispatcher: CoroutineDispatcher?,
+           id: String?,
+           config: ActorConfig,
+           handlerCreator: ActorHandlerCreator
+       ): ActorRef {
+           return system.actorOf(dispatcher, id, ActorRef.EMPTY, config, handlerCreator)
+       }
     }
 
     private data class MessageWrapper(val message: Any, val sender: ActorRef)
@@ -283,11 +300,15 @@ private class ActorSystemImpl private constructor(dispatcher: CoroutineDispatche
         val actorDispatcher = dispatcher ?: defaultActorDispatcher
         mutex.withLock {
             val parentActor = if (parent != ActorRef.EMPTY) {
-                actors[parent] ?: error("Parent actor not found")
+                actors[parent] ?: throw error("Parent actor not found")
             } else null
 
             if (parentActor != null) {
                 actorId = "${parentActor.ref.actorId}/$actorId"
+            }
+
+            if (parentActor != null && parentActor.singleton) {
+                throw error("Parent actor is a singleton actor")
             }
 
             val ref = ActorRef(h::class, actorId)
@@ -333,7 +354,12 @@ private class ActorSystemImpl private constructor(dispatcher: CoroutineDispatche
                 actors.remove(actor.ref)
             }
         }
-        notifySystem(actor.ref, ActorRef.EMPTY, "Actor destroyed", ActorSystemNotificationMessage.NotificationType.ACTOR_DESTROYED)
+        notifySystem(
+            actor.ref,
+            ActorRef.EMPTY,
+            "Actor destroyed",
+            ActorSystemNotificationMessage.NotificationType.ACTOR_DESTROYED
+        )
     }
 
     override fun send(actorRef: ActorRef, sender: ActorRef, message: Any) {

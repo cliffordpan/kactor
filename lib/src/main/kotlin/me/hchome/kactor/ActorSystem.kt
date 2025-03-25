@@ -133,6 +133,13 @@ interface ActorContext: Attributes {
         handlerCreator: ActorHandlerCreator,
     ): ActorRef
 
+    /**
+     * Create a new actor
+     * @see ActorRef
+     */
+    fun createNew(dispatcher: CoroutineDispatcher? = null,id: String? = null,config: ActorConfig = ActorConfig.DEFAULT,
+                  handlerCreator: ActorHandlerCreator) : ActorRef
+
 }
 
 inline fun <reified T : ActorHandler> ActorContext.sendService(message: Any) = sendService(T::class, message)
