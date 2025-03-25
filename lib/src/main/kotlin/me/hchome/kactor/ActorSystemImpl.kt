@@ -300,7 +300,7 @@ private class ActorSystemImpl private constructor(dispatcher: CoroutineDispatche
         val actorDispatcher = dispatcher ?: defaultActorDispatcher
         mutex.withLock {
             val parentActor = if (parent != ActorRef.EMPTY) {
-                actors[parent] ?: throw error("Parent actor not found")
+                actors[parent] ?: throw ActorSystemException("Parent actor not found")
             } else null
 
             if (parentActor != null) {
@@ -308,7 +308,7 @@ private class ActorSystemImpl private constructor(dispatcher: CoroutineDispatche
             }
 
             if (parentActor != null && parentActor.singleton) {
-                throw error("Parent actor is a singleton actor")
+                throw ActorSystemException("Parent actor is a singleton actor")
             }
 
             val ref = ActorRef(h::class, actorId)
@@ -316,7 +316,7 @@ private class ActorSystemImpl private constructor(dispatcher: CoroutineDispatche
                 if (singleton) {
                     return@runBlocking ref
                 } else {
-                    throw error("Actor with id $actorId already exists")
+                    throw ActorSystemException("Actor with id $actorId already exists")
                 }
             }
 
@@ -363,7 +363,7 @@ private class ActorSystemImpl private constructor(dispatcher: CoroutineDispatche
     }
 
     override fun send(actorRef: ActorRef, sender: ActorRef, message: Any) {
-        val actor = actors[actorRef] ?: error("Actor not found")
+        val actor = actors[actorRef] ?: throw ActorSystemException("Actor not found")
         actor.send(message, sender)
     }
 
@@ -419,7 +419,7 @@ private fun ActorSystemImpl.notifySystem(
 /**
  * context function get actor context from coroutine context
  */
-suspend fun ActorHandler.context(): ActorContext = coroutineContext[ActorContextHolder]?.context ?: error("No context")
+suspend fun ActorHandler.context(): ActorContext = coroutineContext[ActorContextHolder]?.context ?: throw ActorSystemException("No context")
 
 /**
  * Attributes implementation for actor context
