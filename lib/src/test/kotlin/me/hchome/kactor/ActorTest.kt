@@ -91,10 +91,10 @@ class ActorTest {
 
     @Test
     fun test(): Unit = runBlocking {
-        val actorRef = SYSTEM.actorOf()
-        val actorRef2 = SYSTEM.actorOf { TestActor }
-        SYSTEM.actorOf(parent = actorRef) { TestActor2 }
-        SYSTEM.actorOf(parent = actorRef) { TestActor2 }
+        val actorRef = SYSTEM.actorOf<TestActor>()
+        val actorRef2 = SYSTEM.actorOf<TestActor>()
+        SYSTEM.actorOf<TestActor2>(parent = actorRef)
+        SYSTEM.actorOf<TestActor2>(parent = actorRef)
         val future1 = CompletableDeferred<String>()
         val future2 = CompletableDeferred<String>()
         SYSTEM.send(actorRef, TestSignal(future1))
