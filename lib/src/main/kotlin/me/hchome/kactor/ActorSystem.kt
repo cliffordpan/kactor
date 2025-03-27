@@ -8,12 +8,18 @@ import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlin.reflect.KClass
+import kotlin.time.Duration
+
 
 /**
- * Create function to create actor handler
- * @see ActorHandler
+ *
  */
-typealias ActorHandlerCreator = () -> ActorHandler
+interface ActorHandlerFactory {
+    fun <T> getBean(kClass: KClass<T>): T where T : ActorHandler
+}
+
+inline fun <reified T> ActorHandlerFactory.getBean(): T where T : ActorHandler = getBean(T::class)
+
 
 /**
  * Actor context is a container for actor information and methods. Use the context to do the operations
@@ -22,7 +28,7 @@ typealias ActorHandlerCreator = () -> ActorHandler
  * @see ActorContext
  * @see ActorHandler
  */
-interface ActorContext: Attributes {
+interface ActorContext : Attributes {
     /**
      * Actor reference
      * @see ActorRef
@@ -58,6 +64,24 @@ interface ActorContext: Attributes {
      * @see ActorRef
      */
     val hasChildren: Boolean get() = children.isNotEmpty()
+
+    /**
+     * Check if an actor has services
+     * @see ActorRef
+     */
+    val hasServices: Boolean get() = services.isNotEmpty()
+
+    /**
+     * Check if an actor has a service
+     * @see ActorRef
+     */
+    fun <T> hasService(kClass: KClass<T>): Boolean where T : ActorHandler = getService(kClass) != ActorRef.EMPTY
+
+    /**
+     * Get a service actor reference
+     * @see ActorRef
+     */
+    fun <T> getService(kClass: KClass<T>): ActorRef where T : ActorHandler
 
     /**
      * Check if an actor is a child of target actor
@@ -126,20 +150,31 @@ interface ActorContext: Attributes {
      * Create a child actor
      * @see ActorRef
      */
-    fun createChild(
+    fun <T> createChild(
         dispatcher: CoroutineDispatcher? = null,
         id: String? = null,
         config: ActorConfig = ActorConfig.DEFAULT,
-        handlerCreator: ActorHandlerCreator,
-    ): ActorRef
+        kClass: KClass<T>,
+    ): ActorRef where T : ActorHandler
 
     /**
      * Create a new actor
      * @see ActorRef
      */
-    fun createNew(dispatcher: CoroutineDispatcher? = null,id: String? = null,config: ActorConfig = ActorConfig.DEFAULT,
-                  handlerCreator: ActorHandlerCreator) : ActorRef
+    fun <T> createNew(
+        dispatcher: CoroutineDispatcher? = null, id: String? = null, config: ActorConfig = ActorConfig.DEFAULT,
+        kClass: KClass<T>,
+    ): ActorRef where T : ActorHandler
 
+    /**
+     * Schedule a task
+     */
+    fun schedule(id: String, period: Duration, initDelay: Duration = Duration.ZERO, block: suspend () -> Unit):Boolean
+
+    /**
+     * cancel a schedule task
+     */
+    fun cancelSchedule(id: String): Boolean
 }
 
 inline fun <reified T : ActorHandler> ActorContext.sendService(message: Any) = sendService(T::class, message)
@@ -178,7 +213,7 @@ interface Actor {
  * @see Actor
  */
 @JvmDefaultWithCompatibility
-interface ActorSystem: DisposableHandle {
+interface ActorSystem : DisposableHandle {
     companion object {
         val NOTIFICATIONS: Flow<ActorSystemNotificationMessage> = MutableSharedFlow(
             onBufferOverflow = BufferOverflow.DROP_OLDEST,
@@ -186,16 +221,19 @@ interface ActorSystem: DisposableHandle {
         )
     }
 
-
-    fun actorOf(
+    fun <T> actorOf(
         dispatcher: CoroutineDispatcher? = null,
         id: String? = null,
         parent: ActorRef = ActorRef.EMPTY,
         config: ActorConfig = ActorConfig.DEFAULT,
-        handler: ActorHandlerCreator
-    ): ActorRef
+        kClass: KClass<T>,
+    ): ActorRef where T : ActorHandler
 
-    fun serviceOf(dispatcher: CoroutineDispatcher? = null, config: ActorConfig = ActorConfig.DEFAULT, handler: ActorHandlerCreator): ActorRef
+    fun <T> serviceOf(
+        dispatcher: CoroutineDispatcher? = null,
+        config: ActorConfig = ActorConfig.DEFAULT,
+        kClass: KClass<T>
+    ): ActorRef where T : ActorHandler
 
     fun getServices(): Set<ActorRef>
 
@@ -205,11 +243,23 @@ interface ActorSystem: DisposableHandle {
 
     fun send(actorRef: ActorRef, message: Any) = send(actorRef, ActorRef.EMPTY, message)
 
-    fun <Handler: ActorHandler> getService(kClass: KClass<Handler>): ActorRef?
+    fun <Handler : ActorHandler> getService(kClass: KClass<Handler>): ActorRef
 
 }
 
-inline fun <reified Handler: ActorHandler> ActorSystem.getService(): ActorRef? = getService(Handler::class)
+inline fun <reified Handler : ActorHandler> ActorSystem.actorOf(
+    dispatcher: CoroutineDispatcher? = null,
+    id: String? = null,
+    parent: ActorRef = ActorRef.EMPTY,
+    config: ActorConfig = ActorConfig.DEFAULT
+): ActorRef = actorOf(dispatcher, id, parent, config, Handler::class)
+
+inline fun <reified Handler : ActorHandler> ActorSystem.serviceOf(
+    dispatcher: CoroutineDispatcher? = null,
+    config: ActorConfig = ActorConfig.DEFAULT
+): ActorRef = serviceOf(dispatcher, config, Handler::class)
+
+inline fun <reified Handler : ActorHandler> ActorSystem.getService(): ActorRef? = getService(Handler::class)
 
 /**
  * Actor handler - business logic for an actor

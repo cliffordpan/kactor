@@ -91,7 +91,7 @@ class ActorTest {
 
     @Test
     fun test(): Unit = runBlocking {
-        val actorRef = SYSTEM.actorOf { TestActor }
+        val actorRef = SYSTEM.actorOf()
         val actorRef2 = SYSTEM.actorOf { TestActor }
         SYSTEM.actorOf(parent = actorRef) { TestActor2 }
         SYSTEM.actorOf(parent = actorRef) { TestActor2 }
@@ -128,7 +128,7 @@ class ActorTest {
         @AfterAll
         @JvmStatic
         fun cleanup() {
-            ActorSystem.destroy()
+            SYSTEM.dispose()
         }
     }
 }

@@ -7,11 +7,13 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.DisposableHandle
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.consumeEach
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -24,6 +26,8 @@ import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.coroutineContext
 import kotlin.properties.Delegates
 import kotlin.reflect.KClass
+import kotlin.reflect.full.createInstance
+import kotlin.time.Duration
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
 
@@ -33,25 +37,27 @@ private class ActorContextHolder(val context: ActorContext) : AbstractCoroutineC
     companion object Key : CoroutineContext.Key<ActorContextHolder>
 }
 
-private fun createActor(
+private fun <T> createActor(
     dispatcher: CoroutineDispatcher,
-    handler: ActorHandler,
+    kClass: KClass<T>,
+    factory: ActorHandlerFactory,
     actorSystem: ActorSystem,
     id: String,
     capacity: Int,
     onBufferOverflow: BufferOverflow,
     singleton: Boolean
-): BaseActor = BaseActor(dispatcher, handler, actorSystem, id, capacity, onBufferOverflow, singleton)
+): BaseActor<T> where T : ActorHandler = BaseActor<T>(dispatcher, kClass, factory, actorSystem, id, capacity, onBufferOverflow, singleton)
 
-private class BaseActor(
+private class BaseActor<T>(
     dispatcher: CoroutineDispatcher,
-    val handler: ActorHandler,
+    kClass: KClass<T>,
+    factory: ActorHandlerFactory,
     val actorSystem: ActorSystem,
     val id: String,
     capacity: Int,
     onBufferOverflow: BufferOverflow,
     val singleton: Boolean
-) : Actor, DisposableHandle, CoroutineScope {
+) : Actor, DisposableHandle, CoroutineScope where T : ActorHandler {
 
     private val mailbox = Channel<MessageWrapper>(capacity, onBufferOverflow, ::undeliveredMessageHandler)
     private val job = SupervisorJob()
@@ -72,13 +78,14 @@ private class BaseActor(
         }
     }
 
-    val ref: ActorRef by lazy { ActorRef(handler::class, id) }
+    val ref: ActorRef by lazy { ActorRef(kClass, id) }
 
     var parent: ActorRef by Delegates.vetoable(ActorRef.EMPTY) { _, old, new ->
         old == ActorRef.EMPTY && new != ActorRef.EMPTY
     }
 
     val childrenRefs: MutableSet<ActorRef> = mutableSetOf<ActorRef>()
+    private val jobs: MutableMap<String, Job> = mutableMapOf()
 
 
     override val coroutineContext: CoroutineContext = dispatcher + job
@@ -88,6 +95,10 @@ private class BaseActor(
 
     val hasParent: Boolean
         get() = parent != ActorRef.EMPTY
+
+    val handler: T by lazy {
+        factory.getBean(kClass)
+    }
 
     init {
         processingMessage()
@@ -103,6 +114,29 @@ private class BaseActor(
 
     fun removeChild(child: ActorRef) {
         childrenRefs.remove(child)
+    }
+
+    fun schedule(id: String, period: Duration, initDelay: Duration = Duration.ZERO, block: suspend () -> Unit): Boolean {
+        if(id in jobs.keys) {
+            false
+        }
+        val job = SupervisorJob(job)
+        launch(job) {
+            delay(initDelay)
+            while (isActive) {
+                block()
+                delay(period)
+            }
+        }
+        jobs[id] = job
+        return true
+    }
+
+    fun cancelSchedule(id: String): Boolean {
+        val job = jobs[id] ?: return false
+        job.cancel()
+        jobs.remove(id)
+        return true
     }
 
     private fun undeliveredMessageHandler(wrapper: MessageWrapper) {
@@ -134,7 +168,7 @@ private class BaseActor(
             sender, ref, "Fatal message: $message",
             notificationType = ActorSystemNotificationMessage.NotificationType.ACTOR_FATAL, e
         )
-        if(singleton) {
+        if (singleton) {
             mailbox.close(e)
             this.cancel("Fatal message: $message", e)
             actorSystem.destroyActor(ref)
@@ -142,8 +176,10 @@ private class BaseActor(
     }
 
 
-    private data class ActorContextImpl(private val self: BaseActor, private val system: ActorSystem) : ActorContext,
+    private data class ActorContextImpl(private val self: BaseActor<*>, private val system: ActorSystem) : ActorContext,
         Attributes by AttributesImpl() {
+
+        override fun <T : ActorHandler> getService(kClass: KClass<T>): ActorRef = system.getService(kClass)
 
         override val services: Set<ActorRef>
             get() = system.getServices()
@@ -210,23 +246,31 @@ private class BaseActor(
             }
         }
 
-        override fun createChild(
+        override fun <T : ActorHandler> createChild(
             dispatcher: CoroutineDispatcher?,
             id: String?,
             config: ActorConfig,
-            handlerCreator: ActorHandlerCreator
+            kClass: KClass<T>
         ): ActorRef {
             if (self.singleton) throw ActorSystemException("Can't create a child for a singleton actor")
-            return system.actorOf(dispatcher, id, self.ref, config, handlerCreator)
+            return system.actorOf(dispatcher, id, self.ref, config, kClass)
         }
 
-        override fun createNew(
+        override fun <T : ActorHandler> createNew(
             dispatcher: CoroutineDispatcher?,
             id: String?,
             config: ActorConfig,
-            handlerCreator: ActorHandlerCreator
+            kClass: KClass<T>
         ): ActorRef {
-            return system.actorOf(dispatcher, id, ActorRef.EMPTY, config, handlerCreator)
+            return system.actorOf(dispatcher, id, ActorRef.EMPTY, config, kClass)
+        }
+
+        override fun schedule(id: String, period: Duration, initDelay: Duration, block: suspend () -> Unit): Boolean {
+            return self.schedule(id, period, initDelay, block)
+        }
+
+        override fun cancelSchedule(id: String): Boolean {
+            return self.cancelSchedule(id)
         }
     }
 
@@ -236,6 +280,10 @@ private class BaseActor(
     override fun dispose() {
         if (!mailbox.isClosedForSend) {
             mailbox.close()
+        }
+        if(this.jobs.isNotEmpty()) {
+            this.jobs.values.forEach { it.cancel() }
+            this.jobs.clear()
         }
         if (this.coroutineContext.isActive) {
             this.cancel()
@@ -247,13 +295,13 @@ private class BaseActor(
 /**
  * Actor system implementation
  */
-private class ActorSystemImpl private constructor(dispatcher: CoroutineDispatcher?) :
+private class ActorSystemImpl(dispatcher: CoroutineDispatcher?, private val handlerFactory: ActorHandlerFactory) :
     ActorSystem, CoroutineScope, DisposableHandle {
     private val job = SupervisorJob()
     override val coroutineContext: CoroutineContext = Dispatchers.Default + job
     private val defaultActorDispatcher: CoroutineDispatcher = dispatcher ?: Dispatchers.IO
     private val mutex = Mutex()
-    private val actors = mutableMapOf<ActorRef, BaseActor>()
+    private val actors = mutableMapOf<ActorRef, BaseActor<*>>()
 
     override fun dispose() {
         for (actor in actors.values) {
@@ -263,48 +311,49 @@ private class ActorSystemImpl private constructor(dispatcher: CoroutineDispatche
         coroutineContext.cancel()
     }
 
-
-    override fun actorOf(
+    override fun <T : ActorHandler> actorOf(
         dispatcher: CoroutineDispatcher?,
         id: String?,
         parent: ActorRef,
         config: ActorConfig,
-        handler: ActorHandlerCreator
-    ): ActorRef = actorOf(dispatcher, id, false, parent, config, handler)
+        kClass: KClass<T>
+    ): ActorRef = actorOf(dispatcher, id, false, parent, config, kClass)
 
-    override fun serviceOf(
+    override fun <T : ActorHandler> serviceOf(
         dispatcher: CoroutineDispatcher?,
         config: ActorConfig,
-        handler: ActorHandlerCreator
-    ): ActorRef = actorOf(dispatcher, null, true, ActorRef.EMPTY, config, handler)
+        kClass: KClass<T>
+    ): ActorRef = actorOf(dispatcher, null, true, ActorRef.EMPTY, config, kClass)
 
     override fun getServices(): Set<ActorRef> {
         return actors.entries.filter { it.value.singleton }.map { it.key }.toSet()
     }
 
-    override fun <Handler : ActorHandler> getService(kClass: KClass<Handler>): ActorRef? {
+    override fun <Handler : ActorHandler> getService(kClass: KClass<Handler>): ActorRef {
         return actors.entries.firstOrNull {
             it.key.handler == kClass &&
                     it.key.actorId == "$kClass" &&
                     it.value.singleton &&
                     kClass.isInstance(it.value.handler)
-        }?.key
+        }?.key ?: ActorRef.EMPTY
     }
 
+    private fun <T : ActorHandler> handler(kClass: KClass<T>): T = handlerFactory.getBean(kClass)
+
     @OptIn(ExperimentalUuidApi::class)
-    private fun actorOf(
+    private fun <T : ActorHandler> actorOf(
         dispatcher: CoroutineDispatcher?,
         id: String?,
         singleton: Boolean,
         parent: ActorRef,
         config: ActorConfig,
-        handler: ActorHandlerCreator
+        kClass: KClass<T>
     ): ActorRef = runBlocking {
-        val h = handler()
+//        val h = handler(kClass)
         var actorId = if (id.isNullOrBlank() && !singleton) {
             "actor-${Uuid.random()}"
         } else if (id.isNullOrBlank()) {
-            "${h::class}"
+            "$kClass"
         } else {
             id
         }
@@ -322,7 +371,7 @@ private class ActorSystemImpl private constructor(dispatcher: CoroutineDispatche
                 throw ActorSystemException("Parent actor is a singleton actor")
             }
 
-            val ref = ActorRef(h::class, actorId)
+            val ref = ActorRef(kClass, actorId)
             if (actors.contains(ref)) {
                 if (singleton) {
                     return@runBlocking ref
@@ -332,7 +381,7 @@ private class ActorSystemImpl private constructor(dispatcher: CoroutineDispatche
             }
 
             val actor = createActor(
-                actorDispatcher, h, this@ActorSystemImpl, actorId, config.capacity,
+                actorDispatcher, kClass, handlerFactory, this@ActorSystemImpl, actorId, config.capacity,
                 config.onBufferOverflow, singleton
             )
             actor.parent = parent
@@ -377,29 +426,17 @@ private class ActorSystemImpl private constructor(dispatcher: CoroutineDispatche
         val actor = actors[actorRef] ?: throw ActorSystemException("Actor not found")
         actor.send(message, sender)
     }
+}
 
-    companion object {
-        private var INSTANCE: ActorSystemImpl? = null
-        fun createOrGet(dispatcher: CoroutineDispatcher?): ActorSystem = runBlocking {
-            (INSTANCE as? ActorSystem) ?: run {
-                INSTANCE = ActorSystemImpl(dispatcher)
-                INSTANCE as ActorSystem
-            }
-        }
+fun ActorSystem.Companion.createOrGet(dispatcher: CoroutineDispatcher? = null, factory: ActorHandlerFactory = DefaultActorHandlerFactory): ActorSystem {
+    return ActorSystemImpl(dispatcher, factory)
+}
 
-        fun destroy() {
-            INSTANCE?.dispose()
-        }
+object DefaultActorHandlerFactory : ActorHandlerFactory {
+
+    override fun <T : ActorHandler> getBean(kClass: KClass<T>): T {
+        return kClass.createInstance()
     }
-}
-
-
-fun ActorSystem.Companion.createOrGet(dispatcher: CoroutineDispatcher? = null): ActorSystem {
-    return ActorSystemImpl.createOrGet(dispatcher)
-}
-
-fun ActorSystem.Companion.destroy() {
-    ActorSystemImpl.destroy()
 }
 
 private fun ActorSystemImpl.notifySystem(
