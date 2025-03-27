@@ -20,7 +20,7 @@ val CallBackKey = AttributeKey<CompletableDeferred<String>>("callbackKey")
 val CountKey = AttributeKey<Int>("countKey")
 
 @Suppress("UNCHECKED_CAST")
-object TestActor : ActorHandler {
+class TestActor : ActorHandler {
 
     val scope = CoroutineScope(Dispatchers.IO)
 
@@ -65,7 +65,7 @@ object TestActor : ActorHandler {
 }
 
 
-object TestActor2 : ActorHandler {
+class TestActor2 : ActorHandler {
     private val scope = CoroutineScope(Dispatchers.IO)
     override suspend fun onMessage(message: Any, sender: ActorRef) {
         val context = context()
