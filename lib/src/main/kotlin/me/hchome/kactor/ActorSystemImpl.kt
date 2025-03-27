@@ -31,7 +31,7 @@ import kotlin.time.Duration
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
 
-private typealias ActorHandlerScope = suspend ActorHandler.(ActorContext, Any, ActorRef) -> Unit
+private typealias ActorHandlerScope = suspend ActorHandler.(Any, ActorRef) -> Unit
 
 private class ActorContextHolder(val context: ActorContext) : AbstractCoroutineContextElement(ActorContextHolder) {
     companion object Key : CoroutineContext.Key<ActorContextHolder>
@@ -46,7 +46,8 @@ private fun <T> createActor(
     capacity: Int,
     onBufferOverflow: BufferOverflow,
     singleton: Boolean
-): BaseActor<T> where T : ActorHandler = BaseActor<T>(dispatcher, kClass, factory, actorSystem, id, capacity, onBufferOverflow, singleton)
+): BaseActor<T> where T : ActorHandler =
+    BaseActor<T>(dispatcher, kClass, factory, actorSystem, id, capacity, onBufferOverflow, singleton)
 
 private class BaseActor<T>(
     dispatcher: CoroutineDispatcher,
@@ -60,11 +61,11 @@ private class BaseActor<T>(
 ) : Actor, DisposableHandle, CoroutineScope where T : ActorHandler {
 
     private val mailbox = Channel<MessageWrapper>(capacity, onBufferOverflow, ::undeliveredMessageHandler)
-    private val job = SupervisorJob()
+
 
     private val handlerScope: ActorHandlerScope = object : ActorHandlerScope {
-        override suspend fun invoke(h: ActorHandler, context: ActorContext, message: Any, sender: ActorRef) {
-            withContext(SupervisorJob(job) + ActorContextHolder(context)) {
+        override suspend fun invoke(h: ActorHandler, message: Any, sender: ActorRef) {
+            withContext(SupervisorJob(job) + holder) {
                 try {
                     h.onMessage(message, sender)
                 } catch (e: Throwable) {
@@ -86,9 +87,11 @@ private class BaseActor<T>(
 
     val childrenRefs: MutableSet<ActorRef> = mutableSetOf<ActorRef>()
     private val jobs: MutableMap<String, Job> = mutableMapOf()
-
-
+    private val context = ActorContextImpl(this@BaseActor, actorSystem)
+    private val holder = ActorContextHolder(context)
+    private val job = SupervisorJob()
     override val coroutineContext: CoroutineContext = dispatcher + job
+
 
     val hasChildren: Boolean
         get() = childrenRefs.isNotEmpty()
@@ -116,15 +119,19 @@ private class BaseActor<T>(
         childrenRefs.remove(child)
     }
 
-    fun schedule(id: String, period: Duration, initDelay: Duration = Duration.ZERO, block: suspend () -> Unit): Boolean {
-        if(id in jobs.keys) {
+    fun schedule(
+        id: String,
+        period: Duration,
+        initDelay: Duration = Duration.ZERO,
+        block: suspend ActorHandler.(ActorContext) -> Unit
+    ): Boolean {
+        if (id in jobs.keys) {
             false
         }
-        val job = SupervisorJob(job)
-        launch(job) {
+        launch(SupervisorJob(job) + holder) {
             delay(initDelay)
             while (isActive) {
-                block()
+                block(handler, context)
                 delay(period)
             }
         }
@@ -150,12 +157,10 @@ private class BaseActor<T>(
 
     private fun processingMessage() {
         launch(job) {
-            val context = ActorContextImpl(this@BaseActor, actorSystem)
-
             mailbox.consumeEach {
                 val (message, sender) = it
                 try {
-                    handlerScope(handler, context, message, sender)
+                    handlerScope(handler, message, sender)
                 } catch (e: Throwable) {
                     fatalHandling(e, message, sender)
                 }
@@ -265,7 +270,12 @@ private class BaseActor<T>(
             return system.actorOf(dispatcher, id, ActorRef.EMPTY, config, kClass)
         }
 
-        override fun schedule(id: String, period: Duration, initDelay: Duration, block: suspend () -> Unit): Boolean {
+        override fun schedule(
+            id: String,
+            period: Duration,
+            initDelay: Duration,
+            block: suspend ActorHandler.(ActorContext) -> Unit
+        ): Boolean {
             return self.schedule(id, period, initDelay, block)
         }
 
@@ -281,7 +291,7 @@ private class BaseActor<T>(
         if (!mailbox.isClosedForSend) {
             mailbox.close()
         }
-        if(this.jobs.isNotEmpty()) {
+        if (this.jobs.isNotEmpty()) {
             this.jobs.values.forEach { it.cancel() }
             this.jobs.clear()
         }
@@ -428,7 +438,10 @@ private class ActorSystemImpl(dispatcher: CoroutineDispatcher?, private val hand
     }
 }
 
-fun ActorSystem.Companion.createOrGet(dispatcher: CoroutineDispatcher? = null, factory: ActorHandlerFactory = DefaultActorHandlerFactory): ActorSystem {
+fun ActorSystem.Companion.createOrGet(
+    dispatcher: CoroutineDispatcher? = null,
+    factory: ActorHandlerFactory = DefaultActorHandlerFactory
+): ActorSystem {
     return ActorSystemImpl(dispatcher, factory)
 }
 

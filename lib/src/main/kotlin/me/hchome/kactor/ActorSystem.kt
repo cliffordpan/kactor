@@ -169,7 +169,7 @@ interface ActorContext : Attributes {
     /**
      * Schedule a task
      */
-    fun schedule(id: String, period: Duration, initDelay: Duration = Duration.ZERO, block: suspend () -> Unit):Boolean
+    fun schedule(id: String, period: Duration, initDelay: Duration = Duration.ZERO, block: suspend ActorHandler.(ActorContext) -> Unit):Boolean
 
     /**
      * cancel a schedule task
