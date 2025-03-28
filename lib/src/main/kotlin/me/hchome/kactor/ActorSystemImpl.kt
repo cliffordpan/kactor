@@ -26,7 +26,6 @@ import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.coroutineContext
 import kotlin.properties.Delegates
 import kotlin.reflect.KClass
-import kotlin.reflect.full.createInstance
 import kotlin.time.Duration
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
@@ -199,6 +198,7 @@ private class BaseActor<T>(
 
         override fun <T : ActorHandler> sendService(kClass: KClass<T>, message: Any) {
             val ref = ActorRef(kClass, "$kClass")
+            
             system.send(ref, self.ref, message)
         }
 
@@ -305,13 +305,15 @@ private class BaseActor<T>(
 /**
  * Actor system implementation
  */
-private class ActorSystemImpl(dispatcher: CoroutineDispatcher?, private val handlerFactory: ActorHandlerFactory) :
+internal class ActorSystemImpl(dispatcher: CoroutineDispatcher?, private val handlerFactory: ActorHandlerFactory) :
     ActorSystem, CoroutineScope, DisposableHandle {
     private val job = SupervisorJob()
     override val coroutineContext: CoroutineContext = Dispatchers.Default + job
     private val defaultActorDispatcher: CoroutineDispatcher = dispatcher ?: Dispatchers.IO
     private val mutex = Mutex()
     private val actors = mutableMapOf<ActorRef, BaseActor<*>>()
+    override val notifications: MutableSharedFlow<ActorSystemNotificationMessage>
+        get() = MutableSharedFlow<ActorSystemNotificationMessage>(0, 10, BufferOverflow.DROP_OLDEST)
 
     override fun dispose() {
         for (actor in actors.values) {
@@ -359,7 +361,6 @@ private class ActorSystemImpl(dispatcher: CoroutineDispatcher?, private val hand
         config: ActorConfig,
         kClass: KClass<T>
     ): ActorRef = runBlocking {
-//        val h = handler(kClass)
         var actorId = if (id.isNullOrBlank() && !singleton) {
             "actor-${Uuid.random()}"
         } else if (id.isNullOrBlank()) {
@@ -438,19 +439,8 @@ private class ActorSystemImpl(dispatcher: CoroutineDispatcher?, private val hand
     }
 }
 
-fun ActorSystem.Companion.createOrGet(
-    dispatcher: CoroutineDispatcher? = null,
-    factory: ActorHandlerFactory = DefaultActorHandlerFactory
-): ActorSystem {
-    return ActorSystemImpl(dispatcher, factory)
-}
 
-object DefaultActorHandlerFactory : ActorHandlerFactory {
 
-    override fun <T : ActorHandler> getBean(kClass: KClass<T>): T {
-        return kClass.createInstance()
-    }
-}
 
 private fun ActorSystemImpl.notifySystem(
     sender: ActorRef,
@@ -472,8 +462,7 @@ private fun ActorSystemImpl.notifySystem(
     }
     val notification = ActorSystemNotificationMessage(sender, receiver, level, message, throwable)
     launch {
-        (ActorSystem.NOTIFICATIONS as MutableSharedFlow<ActorSystemNotificationMessage>)
-            .emit(notification)
+        notifications.emit(notification)
     }
 }
 

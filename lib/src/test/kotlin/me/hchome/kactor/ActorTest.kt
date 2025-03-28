@@ -26,6 +26,7 @@ class TestActor : ActorHandler {
 
     override suspend fun onMessage(message: Any, sender: ActorRef) {
         val context = context()
+        println("$message -- $sender")
         when (message) {
             is TestSignal<*> -> {
                 val next = Random.Default.nextInt(1, 5000)

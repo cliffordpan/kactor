@@ -8,14 +8,33 @@ import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlin.reflect.KClass
+import kotlin.reflect.full.createInstance
 import kotlin.time.Duration
 
 
 /**
+ * Actor handler factory, response for create actor handler
  *
+ * @see ActorHandlerFactory.getBean
  */
 interface ActorHandlerFactory {
-    fun <T> getBean(kClass: KClass<T>): T where T : ActorHandler
+
+    /**
+     * Get an actor handler by class
+     *
+     * @param kClass actor handler class
+     * @return actor handler
+     */
+    fun <T> getBean(kClass: KClass<T>): T where T : ActorHandler = getBean(kClass, emptyArray<Any>())
+
+    /**
+     * Get an actor handler by class and arguments
+     *
+     * @param kClass actor handler class
+     * @param args arguments
+     * @return actor handler
+     */
+    fun <T> getBean(kClass: KClass<T>, vararg args: Any): T where T : ActorHandler
 }
 
 inline fun <reified T> ActorHandlerFactory.getBean(): T where T : ActorHandler = getBean(T::class)
@@ -169,7 +188,7 @@ interface ActorContext : Attributes {
     /**
      * Schedule a task
      */
-    fun schedule(id: String, period: Duration, initDelay: Duration = Duration.ZERO, block: suspend ActorHandler.(ActorContext) -> Unit):Boolean
+    fun schedule(id: String, period: Duration, initDelay: Duration = Duration.ZERO, block: suspend ActorHandler.(ActorContext) -> Unit): Boolean
 
     /**
      * cancel a schedule task
@@ -187,9 +206,28 @@ data class ActorRef(val handler: KClass<out ActorHandler>, val actorId: String) 
     companion object {
         @JvmStatic
         val EMPTY = ActorRef(ActorHandler::class, "")
+
+        /**
+         * Create an actor reference
+         * @param Handler actor handler class
+         * @param id actor id
+         * @return actor reference
+         */
+        inline fun <reified Handler : ActorHandler> withId(id: String) = ActorRef(Handler::class, id)
+
+        /**
+         * Create an actor reference
+         * @param Handler actor handler class
+         * @return actor reference
+         */
+        inline fun <reified Handler : ActorHandler> ref() = ActorRef(Handler::class, "${Handler::class}")
     }
 }
 
+/**
+ * Actor configuration
+ * @see Actor
+ */
 data class ActorConfig(
     val capacity: Int,
     val onBufferOverflow: BufferOverflow
@@ -214,13 +252,17 @@ interface Actor {
  */
 @JvmDefaultWithCompatibility
 interface ActorSystem : DisposableHandle {
-    companion object {
-        val NOTIFICATIONS: Flow<ActorSystemNotificationMessage> = MutableSharedFlow(
-            onBufferOverflow = BufferOverflow.DROP_OLDEST,
-            extraBufferCapacity = 100
-        )
-    }
+    val notifications: Flow<ActorSystemNotificationMessage>
 
+    /**
+     * create an actor
+     * @param dispatcher coroutine dispatcher
+     * @param id actor id
+     * @param parent parent actor reference
+     * @param config actor configuration
+     * @param kClass actor handler class
+     * @return actor reference
+     */
     fun <T> actorOf(
         dispatcher: CoroutineDispatcher? = null,
         id: String? = null,
@@ -229,22 +271,72 @@ interface ActorSystem : DisposableHandle {
         kClass: KClass<T>,
     ): ActorRef where T : ActorHandler
 
+    /**
+     * create a service actor
+     * @param dispatcher coroutine dispatcher
+     * @param config actor configuration
+     * @param kClass actor handler class
+     * @return actor reference
+     */
     fun <T> serviceOf(
         dispatcher: CoroutineDispatcher? = null,
         config: ActorConfig = ActorConfig.DEFAULT,
         kClass: KClass<T>
     ): ActorRef where T : ActorHandler
 
+    /**
+     * get all services
+     */
     fun getServices(): Set<ActorRef>
 
+    /**
+     * destroy an actor
+     * @param actorRef actor reference
+     */
     fun destroyActor(actorRef: ActorRef)
 
+    /**
+     * send a message to an actor
+     * @param actorRef actor reference
+     * @param sender sender actor reference
+     * @param message message
+     */
     fun send(actorRef: ActorRef, sender: ActorRef, message: Any)
 
+    /**
+     * send a message to an actor
+     * @param actorRef actor reference
+     * @param message message
+     */
     fun send(actorRef: ActorRef, message: Any) = send(actorRef, ActorRef.EMPTY, message)
 
+    /**
+     * get a service actor reference
+     * @param kClass actor handler class
+     * @return actor reference
+     */
     fun <Handler : ActorHandler> getService(kClass: KClass<Handler>): ActorRef
 
+    object DefaultActorHandlerFactory : ActorHandlerFactory {
+        override fun <T : ActorHandler> getBean(kClass: KClass<T>, vararg args: Any): T {
+            if (args.isEmpty()) {
+                val o = kClass.objectInstance
+                if (o != null) return o
+                return kClass.createInstance()
+            }
+            return kClass.constructors.first().call(*args)
+        }
+    }
+
+    companion object {
+        @JvmStatic
+        fun createOrGet(
+            dispatcher: CoroutineDispatcher? = null,
+            factory: ActorHandlerFactory = DefaultActorHandlerFactory
+        ): ActorSystem {
+            return ActorSystemImpl(dispatcher, factory)
+        }
+    }
 }
 
 inline fun <reified Handler : ActorHandler> ActorSystem.actorOf(
@@ -259,7 +351,7 @@ inline fun <reified Handler : ActorHandler> ActorSystem.serviceOf(
     config: ActorConfig = ActorConfig.DEFAULT
 ): ActorRef = serviceOf(dispatcher, config, Handler::class)
 
-inline fun <reified Handler : ActorHandler> ActorSystem.getService(): ActorRef? = getService(Handler::class)
+inline fun <reified Handler : ActorHandler> ActorSystem.getService(): ActorRef = getService(Handler::class)
 
 /**
  * Actor handler - business logic for an actor
