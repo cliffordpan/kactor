@@ -185,15 +185,21 @@ interface ActorContext : Attributes {
         kClass: KClass<T>,
     ): ActorRef where T : ActorHandler
 
+
+    fun hasJob(id: String): Boolean
+
     /**
      * Schedule a task
      */
-    fun schedule(id: String, period: Duration, initDelay: Duration = Duration.ZERO, block: suspend ActorHandler.(ActorContext) -> Unit): Boolean
+    suspend fun schedule(id: String, period: Duration, initDelay: Duration = Duration.ZERO, block: suspend ActorHandler.(ActorContext) -> Unit): Boolean
+
+
+    suspend fun task(id:String, initDelay: Duration = Duration.ZERO, block: suspend ActorHandler.(ActorContext)->Unit): Boolean
 
     /**
      * cancel a schedule task
      */
-    fun cancelSchedule(id: String): Boolean
+    suspend fun cancelSchedule(id: String): Boolean
 }
 
 inline fun <reified T : ActorHandler> ActorContext.sendService(message: Any) = sendService(T::class, message)

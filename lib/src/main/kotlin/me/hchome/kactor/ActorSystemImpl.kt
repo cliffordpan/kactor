@@ -89,6 +89,7 @@ private class BaseActor<T>(
     private val context = ActorContextImpl(this@BaseActor, actorSystem)
     private val holder = ActorContextHolder(context)
     private val job = SupervisorJob()
+    private val mutex = Mutex()
     override val coroutineContext: CoroutineContext = dispatcher + job
 
 
@@ -118,7 +119,25 @@ private class BaseActor<T>(
         childrenRefs.remove(child)
     }
 
-    fun schedule(
+    fun hasJob(id:String) :Boolean {
+        return id in jobs
+    }
+
+    suspend fun task(id:String, initDelay: Duration = Duration.ZERO, block: suspend ActorHandler.(ActorContext) -> Unit): Boolean {
+        if (id in jobs.keys) {
+            return false
+        }
+        val job = launch(SupervisorJob(job) + holder) {
+            delay(initDelay)
+            block(handler, context)
+        }
+        mutex.withLock {
+            jobs[id] = job
+        }
+        return true
+    }
+
+    suspend fun schedule(
         id: String,
         period: Duration,
         initDelay: Duration = Duration.ZERO,
@@ -127,21 +146,25 @@ private class BaseActor<T>(
         if (id in jobs.keys) {
             false
         }
-        launch(SupervisorJob(job) + holder) {
+        val job = launch(SupervisorJob(job) + holder) {
             delay(initDelay)
             while (isActive) {
                 block(handler, context)
                 delay(period)
             }
         }
-        jobs[id] = job
+        mutex.withLock {
+            jobs[id] = job
+        }
         return true
     }
 
-    fun cancelSchedule(id: String): Boolean {
+    suspend fun cancelSchedule(id: String): Boolean {
         val job = jobs[id] ?: return false
         job.cancel()
-        jobs.remove(id)
+        mutex.withLock {
+            jobs.remove(id)
+        }
         return true
     }
 
@@ -270,7 +293,7 @@ private class BaseActor<T>(
             return system.actorOf(dispatcher, id, ActorRef.EMPTY, config, kClass)
         }
 
-        override fun schedule(
+        override suspend fun schedule(
             id: String,
             period: Duration,
             initDelay: Duration,
@@ -279,8 +302,20 @@ private class BaseActor<T>(
             return self.schedule(id, period, initDelay, block)
         }
 
-        override fun cancelSchedule(id: String): Boolean {
+        override suspend fun cancelSchedule(id: String): Boolean {
             return self.cancelSchedule(id)
+        }
+
+        override fun hasJob(id: String): Boolean {
+            return self.hasJob(id)
+        }
+
+        override suspend fun task(
+            id: String,
+            initDelay: Duration,
+            block: suspend ActorHandler.(ActorContext) -> Unit
+        ): Boolean {
+            return self.task(id, initDelay, block)
         }
     }
 
