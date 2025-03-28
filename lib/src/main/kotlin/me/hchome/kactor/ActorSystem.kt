@@ -255,6 +255,19 @@ interface ActorSystem : DisposableHandle {
     val notifications: Flow<ActorSystemNotificationMessage>
 
     /**
+     * Check if an actor exists
+     * @param actorRef actor reference
+     */
+    operator fun contains(actorRef: ActorRef): Boolean
+
+
+    /**
+     * Get an actor reference
+     * @param actorRef actor reference
+     */
+    operator fun get(actorRef: ActorRef): ActorRef
+
+    /**
      * create an actor
      * @param dispatcher coroutine dispatcher
      * @param id actor id

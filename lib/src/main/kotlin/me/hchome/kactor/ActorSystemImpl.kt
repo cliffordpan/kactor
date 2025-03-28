@@ -350,6 +350,15 @@ internal class ActorSystemImpl(dispatcher: CoroutineDispatcher?, private val han
         }?.key ?: ActorRef.EMPTY
     }
 
+
+    override fun contains(actorRef: ActorRef): Boolean {
+        return this.actors.contains(actorRef)
+    }
+
+    override fun get(actorRef: ActorRef): ActorRef {
+        return this.actors[actorRef]?.ref ?: ActorRef.EMPTY
+    }
+
     private fun <T : ActorHandler> handler(kClass: KClass<T>): T = handlerFactory.getBean(kClass)
 
     @OptIn(ExperimentalUuidApi::class)
