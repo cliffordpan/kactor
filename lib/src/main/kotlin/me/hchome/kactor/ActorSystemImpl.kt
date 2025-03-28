@@ -85,7 +85,6 @@ private class BaseActor<T>(
     }
 
     val childrenRefs: MutableSet<ActorRef> = mutableSetOf<ActorRef>()
-    private val jobs: MutableMap<String, Job> = mutableMapOf()
     private val context = ActorContextImpl(this@BaseActor, actorSystem)
     private val holder = ActorContextHolder(context)
     private val job = SupervisorJob()
@@ -119,53 +118,25 @@ private class BaseActor<T>(
         childrenRefs.remove(child)
     }
 
-    fun hasJob(id:String) :Boolean {
-        return id in jobs
+    fun task(
+        initDelay: Duration = Duration.ZERO,
+        block: suspend ActorHandler.(ActorContext) -> Unit
+    ): Job = launch(SupervisorJob(job) + holder) {
+        delay(initDelay)
+        block(handler, context)
     }
 
-    suspend fun task(id:String, initDelay: Duration = Duration.ZERO, block: suspend ActorHandler.(ActorContext) -> Unit): Boolean {
-        if (id in jobs.keys) {
-            return false
-        }
-        val job = launch(SupervisorJob(job) + holder) {
-            delay(initDelay)
-            block(handler, context)
-        }
-        mutex.withLock {
-            jobs[id] = job
-        }
-        return true
-    }
-
-    suspend fun schedule(
+    fun schedule(
         id: String,
         period: Duration,
         initDelay: Duration = Duration.ZERO,
         block: suspend ActorHandler.(ActorContext) -> Unit
-    ): Boolean {
-        if (id in jobs.keys) {
-            false
+    ): Job = launch(SupervisorJob(job) + holder) {
+        delay(initDelay)
+        while (isActive) {
+            block(handler, context)
+            delay(period)
         }
-        val job = launch(SupervisorJob(job) + holder) {
-            delay(initDelay)
-            while (isActive) {
-                block(handler, context)
-                delay(period)
-            }
-        }
-        mutex.withLock {
-            jobs[id] = job
-        }
-        return true
-    }
-
-    suspend fun cancelSchedule(id: String): Boolean {
-        val job = jobs[id] ?: return false
-        job.cancel()
-        mutex.withLock {
-            jobs.remove(id)
-        }
-        return true
     }
 
     private fun undeliveredMessageHandler(wrapper: MessageWrapper) {
@@ -221,7 +192,7 @@ private class BaseActor<T>(
 
         override fun <T : ActorHandler> sendService(kClass: KClass<T>, message: Any) {
             val ref = ActorRef(kClass, "$kClass")
-            
+
             system.send(ref, self.ref, message)
         }
 
@@ -293,29 +264,20 @@ private class BaseActor<T>(
             return system.actorOf(dispatcher, id, ActorRef.EMPTY, config, kClass)
         }
 
-        override suspend fun schedule(
+        override fun schedule(
             id: String,
             period: Duration,
             initDelay: Duration,
             block: suspend ActorHandler.(ActorContext) -> Unit
-        ): Boolean {
+        ): Job {
             return self.schedule(id, period, initDelay, block)
         }
 
-        override suspend fun cancelSchedule(id: String): Boolean {
-            return self.cancelSchedule(id)
-        }
-
-        override fun hasJob(id: String): Boolean {
-            return self.hasJob(id)
-        }
-
-        override suspend fun task(
-            id: String,
+        override fun task(
             initDelay: Duration,
             block: suspend ActorHandler.(ActorContext) -> Unit
-        ): Boolean {
-            return self.task(id, initDelay, block)
+        ): Job {
+            return self.task(initDelay, block)
         }
     }
 
@@ -323,13 +285,11 @@ private class BaseActor<T>(
 
     @OptIn(DelicateCoroutinesApi::class)
     override fun dispose() {
+        job.cancel()
         if (!mailbox.isClosedForSend) {
             mailbox.close()
         }
-        if (this.jobs.isNotEmpty()) {
-            this.jobs.values.forEach { it.cancel() }
-            this.jobs.clear()
-        }
+
         if (this.coroutineContext.isActive) {
             this.cancel()
         }
@@ -482,8 +442,6 @@ internal class ActorSystemImpl(dispatcher: CoroutineDispatcher?, private val han
         actor.send(message, sender)
     }
 }
-
-
 
 
 private fun ActorSystemImpl.notifySystem(

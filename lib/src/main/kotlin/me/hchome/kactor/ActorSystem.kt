@@ -4,6 +4,7 @@ package me.hchome.kactor
 
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.DisposableHandle
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -186,20 +187,20 @@ interface ActorContext : Attributes {
     ): ActorRef where T : ActorHandler
 
 
-    fun hasJob(id: String): Boolean
-
     /**
      * Schedule a task
      */
-    suspend fun schedule(id: String, period: Duration, initDelay: Duration = Duration.ZERO, block: suspend ActorHandler.(ActorContext) -> Unit): Boolean
-
-
-    suspend fun task(id:String, initDelay: Duration = Duration.ZERO, block: suspend ActorHandler.(ActorContext)->Unit): Boolean
+    fun schedule(
+        id: String,
+        period: Duration,
+        initDelay: Duration = Duration.ZERO,
+        block: suspend ActorHandler.(ActorContext) -> Unit
+    ): Job
 
     /**
-     * cancel a schedule task
+     * create a run task
      */
-    suspend fun cancelSchedule(id: String): Boolean
+    fun task(initDelay: Duration = Duration.ZERO, block: suspend ActorHandler.(ActorContext) -> Unit): Job
 }
 
 inline fun <reified T : ActorHandler> ActorContext.sendService(message: Any) = sendService(T::class, message)
