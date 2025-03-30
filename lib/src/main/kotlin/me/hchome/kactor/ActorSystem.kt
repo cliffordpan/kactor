@@ -7,7 +7,6 @@ import kotlinx.coroutines.DisposableHandle
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlin.reflect.KClass
 import kotlin.reflect.full.createInstance
 import kotlin.time.Duration
@@ -381,6 +380,12 @@ interface ActorHandler {
     suspend fun onException(exception: Throwable, sender: ActorRef) {
         throw exception
     }
+
+    // life-cycle functions
+    fun preStart() {}
+    fun postStart() {}
+    fun preDestroy() {}
+    fun postDestroy() {}
 }
 
 /**
