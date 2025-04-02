@@ -382,10 +382,10 @@ interface ActorHandler {
     }
 
     // life-cycle functions
-    fun preStart() {}
-    fun postStart() {}
-    fun preDestroy() {}
-    fun postDestroy() {}
+    fun preStart(ref: ActorRef) {}
+    fun postStart(ref: ActorRef) {}
+    fun preDestroy(ref: ActorRef) {}
+    fun postDestroy(ref: ActorRef) {}
 }
 
 /**
