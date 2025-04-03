@@ -149,8 +149,8 @@ private class BaseActor<T>(
     }
 
     private fun processingMessage() {
-        handler.preStart(ref)
-        launch(job) {
+        launch(job + holder) {
+            handler.preStart()
             mailbox.consumeEach {
                 val (message, sender) = it
                 try {
@@ -160,7 +160,6 @@ private class BaseActor<T>(
                 }
             }
         }
-        handler.postStart(ref)
     }
 
     private fun fatalHandling(e: Throwable, message: Any, sender: ActorRef) {
@@ -285,7 +284,7 @@ private class BaseActor<T>(
 
     @OptIn(DelicateCoroutinesApi::class)
     override fun dispose() {
-        handler.preDestroy(ref)
+        handler.preDestroy()
         job.cancel()
         if (!mailbox.isClosedForSend) {
             mailbox.close()
@@ -294,7 +293,6 @@ private class BaseActor<T>(
         if (this.coroutineContext.isActive) {
             this.cancel()
         }
-        handler.postDestroy(ref)
     }
 }
 
