@@ -91,6 +91,18 @@ interface ActorContext : Attributes {
     val hasServices: Boolean get() = services.isNotEmpty()
 
     /**
+     * Check if an actor has a child
+     * @see ActorRef
+     */
+    operator fun contains(childRef: ActorRef): Boolean = children.contains(childRef)
+
+
+    /**
+     * Check system has the reference
+     */
+    fun hasActor(ref: ActorRef): Boolean = getActor(ref) != ActorRef.EMPTY
+
+    /**
      * Check if an actor has a service
      * @see ActorRef
      */
@@ -101,6 +113,12 @@ interface ActorContext : Attributes {
      * @see ActorRef
      */
     fun <T> getService(kClass: KClass<T>): ActorRef where T : ActorHandler
+
+    /**
+     * Get an actor reference
+     * @see ActorRef
+     */
+    fun getActor(ref: ActorRef): ActorRef
 
     /**
      * Check if an actor is a child of target actor
@@ -129,6 +147,11 @@ interface ActorContext : Attributes {
      * Send a message to a service actor
      */
     fun <T : ActorHandler> sendService(kClass: KClass<T>, message: Any)
+
+    /**
+     * Send a message to any actor
+     */
+    fun sendActor(ref: ActorRef, message: Any)
 
     /**
      * Send a message to all children actors

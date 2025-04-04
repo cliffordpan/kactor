@@ -278,6 +278,17 @@ private class BaseActor<T>(
         ): Job {
             return self.task(initDelay, block)
         }
+
+
+        override fun getActor(ref: ActorRef): ActorRef {
+            return system[ref]
+        }
+
+        override fun sendActor(ref: ActorRef, message: Any) {
+            if(getActor(ref) != ActorRef.EMPTY) {
+                system.send(ref, message)
+            }
+        }
     }
 
     private data class MessageWrapper(val message: Any, val sender: ActorRef)
