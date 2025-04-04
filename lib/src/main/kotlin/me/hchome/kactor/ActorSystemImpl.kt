@@ -286,7 +286,7 @@ private class BaseActor<T>(
 
         override fun sendActor(ref: ActorRef, message: Any) {
             if(getActor(ref) != ActorRef.EMPTY) {
-                system.send(ref, message)
+                system.send(ref, self.ref, message)
             }
         }
     }
