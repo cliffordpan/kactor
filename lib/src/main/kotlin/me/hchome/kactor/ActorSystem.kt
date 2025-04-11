@@ -7,6 +7,7 @@ import kotlinx.coroutines.DisposableHandle
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.runBlocking
 import kotlin.reflect.KClass
 import kotlin.reflect.full.createInstance
 import kotlin.time.Duration
@@ -76,7 +77,7 @@ interface ActorContext : Attributes {
      * Check if an actor has a parent
      * @see ActorRef
      */
-    val hasParent: Boolean get() = parent != ActorRef.EMPTY
+    val hasParent: Boolean get() = parent.isNotEmpty()
 
     /**
      * Check if an actor has children
@@ -100,13 +101,13 @@ interface ActorContext : Attributes {
     /**
      * Check system has the reference
      */
-    fun hasActor(ref: ActorRef): Boolean = getActor(ref) != ActorRef.EMPTY
+    fun hasActor(ref: ActorRef): Boolean = getActor(ref).isNotEmpty()
 
     /**
      * Check if an actor has a service
      * @see ActorRef
      */
-    fun <T> hasService(kClass: KClass<T>): Boolean where T : ActorHandler = getService(kClass) != ActorRef.EMPTY
+    fun <T> hasService(kClass: KClass<T>): Boolean where T : ActorHandler = getService(kClass).isNotEmpty()
 
     /**
      * Get a service actor reference
@@ -131,7 +132,7 @@ interface ActorContext : Attributes {
      * @see ActorRef
      */
     fun isFormalChild(childRef: ActorRef): Boolean {
-        return !isChild(childRef) && childRef != ActorRef.EMPTY && childRef.actorId.isNotEmpty()
+        return !isChild(childRef) && childRef.isNotEmpty() && childRef.actorId.isNotEmpty()
                 && childRef.actorId.startsWith(ref.actorId)
     }
 
@@ -140,7 +141,7 @@ interface ActorContext : Attributes {
      * @see ActorRef
      */
     fun isParent(parentRef: ActorRef): Boolean {
-        return parent == parentRef && parent != ActorRef.EMPTY
+        return parent == parentRef && parent.isNotEmpty()
     }
 
     /**
@@ -254,6 +255,17 @@ data class ActorRef(val handler: KClass<out ActorHandler>, val actorId: String) 
 }
 
 /**
+ * Check if an actor reference is empty
+ */
+
+fun ActorRef?.isEmpty(): Boolean = this == null || this == ActorRef.EMPTY || this.actorId.isBlank()
+
+/**
+ * Check if an actor reference is not empty
+ */
+fun ActorRef?.isNotEmpty(): Boolean = !this.isEmpty()
+
+/**
  * Actor configuration
  * @see Actor
  */
@@ -311,6 +323,25 @@ interface ActorSystem : DisposableHandle {
         parent: ActorRef = ActorRef.EMPTY,
         config: ActorConfig = ActorConfig.DEFAULT,
         kClass: KClass<T>,
+    ): ActorRef where T : ActorHandler = runBlocking {
+        actorOfSuspend(dispatcher, id, parent, config, kClass)
+    }
+
+    /**
+     * create an actor
+     * @param dispatcher coroutine dispatcher
+     * @param id actor id
+     * @param parent parent actor reference
+     * @param config actor configuration
+     * @param kClass actor handler class
+     * @return actor reference
+     */
+    suspend fun <T> actorOfSuspend(
+        dispatcher: CoroutineDispatcher? = null,
+        id: String? = null,
+        parent: ActorRef = ActorRef.EMPTY,
+        config: ActorConfig = ActorConfig.DEFAULT,
+        kClass: KClass<T>,
     ): ActorRef where T : ActorHandler
 
     /**
@@ -321,6 +352,14 @@ interface ActorSystem : DisposableHandle {
      * @return actor reference
      */
     fun <T> serviceOf(
+        dispatcher: CoroutineDispatcher? = null,
+        config: ActorConfig = ActorConfig.DEFAULT,
+        kClass: KClass<T>
+    ): ActorRef where T : ActorHandler = runBlocking {
+        serviceOfSuspend(dispatcher, config, kClass)
+    }
+
+    suspend fun <T> serviceOfSuspend(
         dispatcher: CoroutineDispatcher? = null,
         config: ActorConfig = ActorConfig.DEFAULT,
         kClass: KClass<T>
@@ -388,10 +427,22 @@ inline fun <reified Handler : ActorHandler> ActorSystem.actorOf(
     config: ActorConfig = ActorConfig.DEFAULT
 ): ActorRef = actorOf(dispatcher, id, parent, config, Handler::class)
 
+suspend inline fun <reified Handler : ActorHandler> ActorSystem.actorOfSuspend(
+    dispatcher: CoroutineDispatcher? = null,
+    id: String? = null,
+    parent: ActorRef = ActorRef.EMPTY,
+    config: ActorConfig = ActorConfig.DEFAULT
+): ActorRef = actorOfSuspend(dispatcher, id, parent, config, Handler::class)
+
 inline fun <reified Handler : ActorHandler> ActorSystem.serviceOf(
     dispatcher: CoroutineDispatcher? = null,
     config: ActorConfig = ActorConfig.DEFAULT
 ): ActorRef = serviceOf(dispatcher, config, Handler::class)
+
+suspend inline fun <reified Handler : ActorHandler> ActorSystem.serviceOfSuspend(
+    dispatcher: CoroutineDispatcher? = null,
+    config: ActorConfig = ActorConfig.DEFAULT
+): ActorRef = serviceOfSuspend(dispatcher, config, Handler::class)
 
 inline fun <reified Handler : ActorHandler> ActorSystem.getService(): ActorRef = getService(Handler::class)
 
@@ -406,6 +457,7 @@ interface ActorHandler {
 
     // life-cycle functions
     suspend fun preStart() {}
+    suspend fun postStop() {}
     fun preDestroy() {}
 }
 

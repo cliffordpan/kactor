@@ -14,6 +14,7 @@ import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.consumeEach
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -81,7 +82,7 @@ private class BaseActor<T>(
     val ref: ActorRef by lazy { ActorRef(kClass, id) }
 
     var parent: ActorRef by Delegates.vetoable(ActorRef.EMPTY) { _, old, new ->
-        old == ActorRef.EMPTY && new != ActorRef.EMPTY
+        old.isEmpty() && new.isNotEmpty()
     }
 
     val childrenRefs: MutableSet<ActorRef> = mutableSetOf<ActorRef>()
@@ -96,7 +97,7 @@ private class BaseActor<T>(
         get() = childrenRefs.isNotEmpty()
 
     val hasParent: Boolean
-        get() = parent != ActorRef.EMPTY
+        get() = parent.isNotEmpty()
 
     val handler: T by lazy {
         factory.getBean(kClass)
@@ -159,6 +160,7 @@ private class BaseActor<T>(
                     fatalHandling(e, message, sender)
                 }
             }
+            handler.postStop()
         }
     }
 
@@ -191,12 +193,33 @@ private class BaseActor<T>(
 
         override fun <T : ActorHandler> sendService(kClass: KClass<T>, message: Any) {
             val ref = ActorRef(kClass, "$kClass")
-
-            system.send(ref, self.ref, message)
+            if(ref in system) {
+                system.send(ref, self.ref, message)
+                return
+            } else {
+                (system as ActorSystemImpl).notifySystem(
+                    self.ref, ActorRef.EMPTY,
+                    "Target service $kClass is not found: $message",
+                    ActorSystemNotificationMessage.NotificationType.ACTOR_EXCEPTION
+                )
+            }
         }
 
         override fun sendChildren(message: Any) {
             if (self.singleton) {
+                (system as ActorSystemImpl).notifySystem(
+                    self.ref, ActorRef.EMPTY,
+                    "Target children shouldn't be a service: $message",
+                    ActorSystemNotificationMessage.NotificationType.ACTOR_EXCEPTION
+                )
+                return
+            }
+            if (self.childrenRefs.isEmpty()) {
+                (system as ActorSystemImpl).notifySystem(
+                    self.ref, ActorRef.EMPTY,
+                    "Send a message to an empty children: $message",
+                    ActorSystemNotificationMessage.NotificationType.MESSAGE_UNDELIVERED
+                )
                 return
             }
             self.childrenRefs.forEach {
@@ -210,6 +233,12 @@ private class BaseActor<T>(
             }
             self.childrenRefs.firstOrNull { it == childRef }?.also {
                 system.send(it, self.ref, message)
+            } ?: run {
+                (system as ActorSystemImpl).notifySystem(
+                    self.ref, ActorRef.EMPTY,
+                    "Send a message to an empty child $childRef: $message",
+                    ActorSystemNotificationMessage.NotificationType.MESSAGE_UNDELIVERED
+                )
             }
         }
 
@@ -285,8 +314,14 @@ private class BaseActor<T>(
         }
 
         override fun sendActor(ref: ActorRef, message: Any) {
-            if(getActor(ref) != ActorRef.EMPTY) {
+            if (getActor(ref).isNotEmpty()) {
                 system.send(ref, self.ref, message)
+            } else {
+                (system as ActorSystemImpl).notifySystem(
+                    self.ref, ActorRef.EMPTY,
+                    "Send a message to an empty actor $ref: $message",
+                    ActorSystemNotificationMessage.NotificationType.MESSAGE_UNDELIVERED
+                )
             }
         }
     }
@@ -307,7 +342,6 @@ private class BaseActor<T>(
     }
 }
 
-
 /**
  * Actor system implementation
  */
@@ -318,8 +352,9 @@ internal class ActorSystemImpl(dispatcher: CoroutineDispatcher?, private val han
     private val defaultActorDispatcher: CoroutineDispatcher = dispatcher ?: Dispatchers.IO
     private val mutex = Mutex()
     private val actors = mutableMapOf<ActorRef, BaseActor<*>>()
-    override val notifications: MutableSharedFlow<ActorSystemNotificationMessage>
-        get() = MutableSharedFlow<ActorSystemNotificationMessage>(0, 10, BufferOverflow.DROP_OLDEST)
+    internal val _notifications = MutableSharedFlow<ActorSystemNotificationMessage>(0, 10, BufferOverflow.DROP_OLDEST)
+    override val notifications: Flow<ActorSystemNotificationMessage>
+        get() = _notifications
 
     override fun dispose() {
         for (actor in actors.values) {
@@ -329,19 +364,19 @@ internal class ActorSystemImpl(dispatcher: CoroutineDispatcher?, private val han
         coroutineContext.cancel()
     }
 
-    override fun <T : ActorHandler> actorOf(
+    override suspend fun <T : ActorHandler> actorOfSuspend(
         dispatcher: CoroutineDispatcher?,
         id: String?,
         parent: ActorRef,
         config: ActorConfig,
         kClass: KClass<T>
-    ): ActorRef = actorOf(dispatcher, id, false, parent, config, kClass)
+    ): ActorRef = actorOfSuspend(dispatcher, id, false, parent, config, kClass)
 
-    override fun <T : ActorHandler> serviceOf(
+    override suspend fun <T : ActorHandler> serviceOfSuspend(
         dispatcher: CoroutineDispatcher?,
         config: ActorConfig,
         kClass: KClass<T>
-    ): ActorRef = actorOf(dispatcher, null, true, ActorRef.EMPTY, config, kClass)
+    ): ActorRef = actorOfSuspend(dispatcher, null, true, ActorRef.EMPTY, config, kClass)
 
     override fun getServices(): Set<ActorRef> {
         return actors.entries.filter { it.value.singleton }.map { it.key }.toSet()
@@ -357,17 +392,17 @@ internal class ActorSystemImpl(dispatcher: CoroutineDispatcher?, private val han
     }
 
 
-    override fun contains(actorRef: ActorRef): Boolean {
+    override operator fun contains(actorRef: ActorRef): Boolean {
         return this.actors.contains(actorRef)
     }
 
-    override fun get(actorRef: ActorRef): ActorRef {
+    override operator fun get(actorRef: ActorRef): ActorRef {
         return this.actors[actorRef]?.ref ?: ActorRef.EMPTY
     }
 
     private fun <T : ActorHandler> handler(kClass: KClass<T>): T = handlerFactory.getBean(kClass)
 
-    @OptIn(ExperimentalUuidApi::class)
+
     private fun <T : ActorHandler> actorOf(
         dispatcher: CoroutineDispatcher?,
         id: String?,
@@ -376,23 +411,24 @@ internal class ActorSystemImpl(dispatcher: CoroutineDispatcher?, private val han
         config: ActorConfig,
         kClass: KClass<T>
     ): ActorRef = runBlocking {
-        var actorId = if (id.isNullOrBlank() && !singleton) {
-            "actor-${Uuid.random()}"
-        } else if (id.isNullOrBlank()) {
-            "$kClass"
-        } else {
-            id
-        }
+        actorOfSuspend(dispatcher, id, singleton, parent, config, kClass)
+    }
+
+    @OptIn(ExperimentalUuidApi::class)
+    private suspend fun <T : ActorHandler> actorOfSuspend(
+        dispatcher: CoroutineDispatcher?,
+        id: String?,
+        singleton: Boolean,
+        parent: ActorRef,
+        config: ActorConfig,
+        kClass: KClass<T>
+    ): ActorRef {
+        val parentActor = if (parent.isNotEmpty()) {
+            actors[parent] ?: throw ActorSystemException("Parent actor not found")
+        } else null
+        var actorId = buildActorId(parent, id, singleton, kClass)
         val actorDispatcher = dispatcher ?: defaultActorDispatcher
-        mutex.withLock {
-            val parentActor = if (parent != ActorRef.EMPTY) {
-                actors[parent] ?: throw ActorSystemException("Parent actor not found")
-            } else null
-
-            if (parentActor != null) {
-                actorId = "${parentActor.ref.actorId}/$actorId"
-            }
-
+        return mutex.withLock {
             if (parentActor != null && parentActor.singleton) {
                 throw ActorSystemException("Parent actor is a singleton actor")
             }
@@ -400,7 +436,7 @@ internal class ActorSystemImpl(dispatcher: CoroutineDispatcher?, private val han
             val ref = ActorRef(kClass, actorId)
             if (actors.contains(ref)) {
                 if (singleton) {
-                    return@runBlocking ref
+                    return ref
                 } else {
                     throw ActorSystemException("Actor with id $actorId already exists")
                 }
@@ -452,6 +488,25 @@ internal class ActorSystemImpl(dispatcher: CoroutineDispatcher?, private val han
         val actor = actors[actorRef] ?: throw ActorSystemException("Actor not found")
         actor.send(message, sender)
     }
+
+    @OptIn(ExperimentalUuidApi::class)
+    private fun buildActorId(
+        parent: ActorRef?,
+        id: String?,
+        singleton: Boolean,
+        kClass: KClass<*>
+    ): String {
+        val baseId = when {
+            id.isNullOrBlank() && !singleton -> "actor-${Uuid.random()}"
+            id.isNullOrBlank() -> "$kClass"
+            else -> id
+        }
+        return if (parent != null && parent.isNotEmpty()) {
+            "${parent.actorId}/$baseId"
+        } else {
+            baseId
+        }
+    }
 }
 
 
@@ -475,7 +530,7 @@ private fun ActorSystemImpl.notifySystem(
     }
     val notification = ActorSystemNotificationMessage(sender, receiver, level, message, throwable)
     launch {
-        notifications.emit(notification)
+        _notifications.emit(notification)
     }
 }
 
