@@ -3,6 +3,7 @@ package me.hchome.kactor
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
@@ -12,6 +13,7 @@ import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.Test
 import kotlin.random.Random
 import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
 
 data class TestSignal<T>(val completing: CompletableDeferred<in T>) where T : Any
 
@@ -20,12 +22,23 @@ val CallBackKey = AttributeKey<CompletableDeferred<String>>("callbackKey")
 val CountKey = AttributeKey<Int>("countKey")
 
 @Suppress("UNCHECKED_CAST")
-class TestActor : ActorHandler {
+class TestActor : ActorHandler, CoroutineScope by CoroutineScope(Dispatchers.IO) {
 
     val scope = CoroutineScope(Dispatchers.IO)
 
     override suspend fun onMessage(message: Any, sender: ActorRef) {
+        launch(this@TestActor.coroutineContext + currentCoroutineContext()) {
+            delay(1000)
+            val context = context()
+            println("Task111: ${context.ref}")
+        }
+
         val context = context()
+        println("Main: ${context.ref}")
+        context.task {
+            val context = context()
+            println("Task: ${context.ref}")
+        }
         println("$message -- $sender")
         when (message) {
             is TestSignal<*> -> {
@@ -86,6 +99,30 @@ class TestActor2 : ActorHandler {
 
 }
 
+class TestActor3 : ActorHandler {
+
+    override suspend fun onAsk(message: Any, sender: ActorRef, callback: CompletableDeferred<in Any>) {
+        when (message) {
+            "Hello" -> callback.complete("Hello to you too")
+            else -> callback.complete("I don't know what you say")
+        }
+    }
+
+    override suspend fun onMessage(message: Any, sender: ActorRef) {
+        val context = context()
+        when (message) {
+            "start" -> {
+                context.createChild<TestActor3>(id = "c1")
+            }
+
+            "do" -> {
+                val rs: String = context.askChild<String, TestActor3>("Hello", id = "c1").await()
+                println(rs)
+            }
+        }
+    }
+
+}
 
 class ActorTest {
 
@@ -114,6 +151,14 @@ class ActorTest {
         }
 
         joinAll(job1, job2)
+    }
+
+    @Test
+    fun test2(): Unit = runBlocking {
+        val actorRef = SYSTEM.actorOf<TestActor3>()
+        SYSTEM.send(actorRef, "start")
+        SYSTEM.send(actorRef, "do")
+        delay(5.seconds)
     }
 
     companion object {

@@ -2,13 +2,17 @@
 
 package me.hchome.kactor
 
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.DisposableHandle
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
@@ -21,7 +25,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import kotlin.coroutines.AbstractCoroutineContextElement
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.coroutineContext
@@ -32,6 +36,7 @@ import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
 
 private typealias ActorHandlerScope = suspend ActorHandler.(Any, ActorRef) -> Unit
+private typealias AskActorHandlerScope = suspend ActorHandler.(Any, ActorRef, CompletableDeferred<in Any>) -> Unit
 
 private class ActorContextHolder(val context: ActorContext) : AbstractCoroutineContextElement(ActorContextHolder) {
     companion object Key : CoroutineContext.Key<ActorContextHolder>
@@ -50,7 +55,7 @@ private fun <T> createActor(
     BaseActor<T>(dispatcher, kClass, factory, actorSystem, id, capacity, onBufferOverflow, singleton)
 
 private class BaseActor<T>(
-    dispatcher: CoroutineDispatcher,
+    private val dispatcher: CoroutineDispatcher,
     kClass: KClass<T>,
     factory: ActorHandlerFactory,
     val actorSystem: ActorSystem,
@@ -62,20 +67,27 @@ private class BaseActor<T>(
 
     private val mailbox = Channel<MessageWrapper>(capacity, onBufferOverflow, ::undeliveredMessageHandler)
 
+    private val handlerScope: ActorHandlerScope = { h: ActorHandler, message: Any, sender: ActorRef ->
+        try {
+            h.onMessage(message, sender)
+        } catch (e: Throwable) {
+            h.onException(e, sender)
+            (actorSystem as ActorSystemImpl).notifySystem(
+                sender, context.ref, "Exception occurred: $message",
+                ActorSystemNotificationMessage.NotificationType.ACTOR_EXCEPTION, e
+            )
+        }
+    }
 
-    private val handlerScope: ActorHandlerScope = object : ActorHandlerScope {
-        override suspend fun invoke(h: ActorHandler, message: Any, sender: ActorRef) {
-            withContext(SupervisorJob(job) + holder) {
-                try {
-                    h.onMessage(message, sender)
-                } catch (e: Throwable) {
-                    h.onException(e, sender)
-                    (actorSystem as ActorSystemImpl).notifySystem(
-                        sender, context.ref, "Exception occurred: $message",
-                        ActorSystemNotificationMessage.NotificationType.ACTOR_EXCEPTION, e
-                    )
-                }
-            }
+    private val askHandlerScope: AskActorHandlerScope = { h: ActorHandler, message: Any, sender: ActorRef, cb ->
+        try {
+            h.onAsk(message, sender, cb)
+        } catch (e: Throwable) {
+            h.onException(e, sender)
+            (actorSystem as ActorSystemImpl).notifySystem(
+                sender, context.ref, "Exception occurred: $message",
+                ActorSystemNotificationMessage.NotificationType.ACTOR_EXCEPTION, e
+            )
         }
     }
 
@@ -90,7 +102,8 @@ private class BaseActor<T>(
     private val holder = ActorContextHolder(context)
     private val job = SupervisorJob()
     private val mutex = Mutex()
-    override val coroutineContext: CoroutineContext = dispatcher + job
+    override val coroutineContext: CoroutineContext
+        get() = dispatcher + job + holder
 
 
     val hasChildren: Boolean
@@ -108,7 +121,15 @@ private class BaseActor<T>(
     }
 
     override fun send(message: Any, sender: ActorRef) {
-        mailbox.trySend(MessageWrapper(message, sender)).getOrThrow()
+        mailbox.trySend(SetStatusMessageWrapperImpl(message, sender)).getOrThrow()
+    }
+
+    override fun <T : Any> ask(message: Any, sender: ActorRef, callback: CompletableDeferred<in T>) {
+        try {
+            mailbox.trySend(GetStatusMessageWrapperImpl(message, sender, callback)).getOrThrow()
+        } catch (e: Throwable) {
+            callback.completeExceptionally(e)
+        }
     }
 
     fun addChild(child: ActorRef) {
@@ -121,27 +142,28 @@ private class BaseActor<T>(
 
     fun task(
         initDelay: Duration = Duration.ZERO,
-        block: suspend ActorHandler.(ActorContext) -> Unit
-    ): Job = launch(SupervisorJob(job) + holder) {
+        block: suspend ActorHandler.() -> Unit
+    ): Job = launch {
         delay(initDelay)
-        block(handler, context)
+        block(handler)
     }
 
     fun schedule(
         id: String,
         period: Duration,
         initDelay: Duration = Duration.ZERO,
-        block: suspend ActorHandler.(ActorContext) -> Unit
-    ): Job = launch(SupervisorJob(job) + holder) {
+        block: suspend ActorHandler.() -> Unit
+    ): Job = launch {
         delay(initDelay)
         while (isActive) {
-            block(handler, context)
+            block(handler)
             delay(period)
         }
     }
 
     private fun undeliveredMessageHandler(wrapper: MessageWrapper) {
-        val (message, sender) = wrapper
+        val message = wrapper.message
+        val sender = wrapper.sender
         val formattedMessage = "Undelivered message: $message"
         (actorSystem as ActorSystemImpl).notifySystem(
             sender, ref, formattedMessage,
@@ -149,13 +171,25 @@ private class BaseActor<T>(
         )
     }
 
+    @Suppress("UNCHECKED_CAST")
     private fun processingMessage() {
-        launch(job + holder) {
+        launch {
             handler.preStart()
-            mailbox.consumeEach {
-                val (message, sender) = it
+            mailbox.consumeEach { wrapper ->
+                val message = wrapper.message
+                val sender = wrapper.sender
                 try {
-                    handlerScope(handler, message, sender)
+                    when (wrapper) {
+                        is SetStatusMessageWrapperImpl -> {
+                            val (message, sender) = wrapper
+                            handlerScope(handler, message, sender)
+                        }
+
+                        is GetStatusMessageWrapperImpl<*> -> {
+                            val (message, sender, cb) = wrapper
+                            askHandlerScope(handler, message, sender, cb as CompletableDeferred<in Any>)
+                        }
+                    }
                 } catch (e: Throwable) {
                     fatalHandling(e, message, sender)
                 }
@@ -193,7 +227,7 @@ private class BaseActor<T>(
 
         override fun <T : ActorHandler> sendService(kClass: KClass<T>, message: Any) {
             val ref = ActorRef(kClass, "$kClass")
-            if(ref in system) {
+            if (ref in system) {
                 system.send(ref, self.ref, message)
                 return
             } else {
@@ -225,6 +259,18 @@ private class BaseActor<T>(
             self.childrenRefs.forEach {
                 system.send(it, self.ref, message)
             }
+        }
+
+        override fun <T : ActorHandler> getChild(id: String, kClass: KClass<T>): ActorRef {
+            return children.firstOrNull { it.actorId.endsWith(id) && it.handler == kClass } ?: ActorRef.EMPTY
+        }
+
+        override fun <T : Any, H: ActorHandler> askChild(message: Any, id: String, kClass: KClass<H>, timeout: Duration): Deferred<T> {
+            var ref: ActorRef = getChild(id, kClass)
+            if (ref.isEmpty()) {
+                ref = createChild(id = id, kClass = kClass)
+            }
+            return system.ask<T>(ref, self.ref, message, timeout)
         }
 
         override fun sendChild(childRef: ActorRef, message: Any) {
@@ -296,14 +342,14 @@ private class BaseActor<T>(
             id: String,
             period: Duration,
             initDelay: Duration,
-            block: suspend ActorHandler.(ActorContext) -> Unit
+            block: suspend ActorHandler.() -> Unit
         ): Job {
             return self.schedule(id, period, initDelay, block)
         }
 
         override fun task(
             initDelay: Duration,
-            block: suspend ActorHandler.(ActorContext) -> Unit
+            block: suspend ActorHandler.() -> Unit
         ): Job {
             return self.task(initDelay, block)
         }
@@ -324,9 +370,32 @@ private class BaseActor<T>(
                 )
             }
         }
+
+        override fun <T : Any> ask(message: Any, ref: ActorRef, timeout: Duration): Deferred<T> {
+            if (ref == self.ref) {
+                throw ActorSystemException("Can't ask self")
+            } else if (ref == ActorRef.EMPTY) {
+                throw ActorSystemException("Can't ask empty actor")
+            }
+            return system.ask<T>(ref, self.ref, message)
+        }
     }
 
-    private data class MessageWrapper(val message: Any, val sender: ActorRef)
+    private interface MessageWrapper {
+        val message: Any
+        val sender: ActorRef
+    }
+
+    private data class SetStatusMessageWrapperImpl(
+        override val message: Any,
+        override val sender: ActorRef
+    ) : MessageWrapper
+
+    private data class GetStatusMessageWrapperImpl<T>(
+        override val message: Any,
+        override val sender: ActorRef,
+        val callback: CompletableDeferred<in T>
+    ) : MessageWrapper
 
     @OptIn(DelicateCoroutinesApi::class)
     override fun dispose() {
@@ -401,7 +470,6 @@ internal class ActorSystemImpl(dispatcher: CoroutineDispatcher?, private val han
     }
 
     private fun <T : ActorHandler> handler(kClass: KClass<T>): T = handlerFactory.getBean(kClass)
-
 
     private fun <T : ActorHandler> actorOf(
         dispatcher: CoroutineDispatcher?,
@@ -489,6 +557,25 @@ internal class ActorSystemImpl(dispatcher: CoroutineDispatcher?, private val han
         actor.send(message, sender)
     }
 
+    override fun <T : Any> ask(actorRef: ActorRef, sender: ActorRef, message: Any, timeout: Duration): Deferred<T> = async {
+        val actor = actors[actorRef] ?: throw ActorSystemException("Actor not found")
+        val deferred = CompletableDeferred<T>()
+        try {
+            withTimeout(timeout) {
+                actor.ask<T>(message, sender, deferred)
+                deferred.await()
+            }
+        } catch (e: TimeoutCancellationException) {
+            notifySystem(
+                sender,
+                actorRef,
+                "Actor timeout",
+                ActorSystemNotificationMessage.NotificationType.ACTOR_TIMEOUT,
+            )
+            throw ActorSystemException("Actor timeout")
+        }
+    }
+
     @OptIn(ExperimentalUuidApi::class)
     private fun buildActorId(
         parent: ActorRef?,
@@ -519,6 +606,7 @@ private fun ActorSystemImpl.notifySystem(
 ) {
     val level = when (notificationType) {
         ActorSystemNotificationMessage.NotificationType.MESSAGE_UNDELIVERED,
+        ActorSystemNotificationMessage.NotificationType.ACTOR_TIMEOUT,
         ActorSystemNotificationMessage.NotificationType.ACTOR_EXCEPTION,
             -> ActorSystemNotificationMessage.MessageLevel.WARN
 
@@ -566,5 +654,9 @@ private class AttributesImpl() : Attributes {
 
     override suspend fun <T : Any> remove(key: AttributeKey<T>): T? {
         return mutex.withLock { attributes.remove(key) as? T }
+    }
+
+    override suspend fun clear() {
+        return mutex.withLock { attributes.clear() }
     }
 }

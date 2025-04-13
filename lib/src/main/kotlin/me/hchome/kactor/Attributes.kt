@@ -1,4 +1,5 @@
 @file:Suppress("unused")
+
 package me.hchome.kactor
 
 import kotlin.reflect.KClass
@@ -39,6 +40,18 @@ interface Attributes {
      * Returns the value for the given key or `null` if no value is found
      */
     suspend fun <T : Any> getOrNull(key: AttributeKey<T>): T?
+
+    /**
+     * Clears the map, removing all values
+     */
+    suspend fun clear()
+
+    /**
+     * Returns the value for the given key or calls [defaultValue] if no value is found
+     */
+    suspend fun <T : Any> getOrPut(key: AttributeKey<T>, defaultValue: () -> T): T {
+        return getOrNull(key) ?: defaultValue().also { put(key, it) }
+    }
 
     /**
      * Returns all values in the map

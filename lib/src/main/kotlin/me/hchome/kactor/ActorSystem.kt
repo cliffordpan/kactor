@@ -2,7 +2,9 @@
 
 package me.hchome.kactor
 
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.DisposableHandle
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.BufferOverflow
@@ -26,7 +28,7 @@ interface ActorHandlerFactory {
      * @param kClass actor handler class
      * @return actor handler
      */
-    fun <T> getBean(kClass: KClass<T>): T where T : ActorHandler = getBean(kClass, emptyArray<Any>())
+    fun <T> getBean(kClass: KClass<T>): T where T : ActorHandler = getBean(kClass, *emptyArray<Any>())
 
     /**
      * Get an actor handler by class and arguments
@@ -165,6 +167,12 @@ interface ActorContext : Attributes {
     fun sendChild(childRef: ActorRef, message: Any)
 
     /**
+     * Get a child actor reference
+     * @see ActorRef
+     */
+    fun <T> getChild(id: String, kClass: KClass<T>): ActorRef where T : ActorHandler
+
+    /**
      * Send a message to the parent actor
      */
     fun sendParent(message: Any)
@@ -173,6 +181,16 @@ interface ActorContext : Attributes {
      * Send a message to the self-actor
      */
     fun sendSelf(message: Any)
+
+    /**
+     * Send a message to the actor (not self) and wait for a response
+     */
+    fun <T : Any> ask(message: Any, ref: ActorRef, timeout: Duration = Duration.INFINITE): Deferred<T>
+
+    /**
+     * Ask a child
+     */
+    fun <T : Any, H : ActorHandler> askChild(message: Any, id: String, kClass: KClass<H>, timeout: Duration = Duration.INFINITE): Deferred<T>
 
     /**
      * Stop a child actor
@@ -217,16 +235,37 @@ interface ActorContext : Attributes {
         id: String,
         period: Duration,
         initDelay: Duration = Duration.ZERO,
-        block: suspend ActorHandler.(ActorContext) -> Unit
+        block: suspend ActorHandler.() -> Unit
     ): Job
 
     /**
      * create a run task
      */
-    fun task(initDelay: Duration = Duration.ZERO, block: suspend ActorHandler.(ActorContext) -> Unit): Job
+    fun task(initDelay: Duration = Duration.ZERO, block: suspend ActorHandler.() -> Unit): Job
 }
 
 inline fun <reified T : ActorHandler> ActorContext.sendService(message: Any) = sendService(T::class, message)
+
+inline fun <reified T : ActorHandler> ActorContext.sendChild(id: String, message: Any) = sendChild(getChild<T>(id), message)
+
+inline fun <reified T : ActorHandler> ActorContext.createChild(
+    dispatcher: CoroutineDispatcher? = null,
+    id: String? = null,
+    config: ActorConfig = ActorConfig.DEFAULT,
+) = createChild(dispatcher, id, config, T::class)
+
+inline fun <reified T : ActorHandler> ActorContext.createNew(
+    dispatcher: CoroutineDispatcher? = null,
+    id: String? = null,
+    config: ActorConfig = ActorConfig.DEFAULT,
+) = createNew(dispatcher, id, config, T::class)
+
+inline fun <reified T : ActorHandler> ActorContext.getService() = getService(T::class)
+
+inline fun <reified T : ActorHandler> ActorContext.getChild(id: String) = getChild(id, T::class)
+
+inline fun <T : Any, reified H : ActorHandler> ActorContext.askChild(message: Any, id: String, timeout: Duration = Duration.INFINITE): Deferred<T> =
+    askChild(message, id, H::class, timeout)
 
 /**
  * Actor reference
@@ -284,7 +323,21 @@ data class ActorConfig(
  * @see ActorSystem
  */
 interface Actor {
+    /**
+     * Send a message to the actor
+     * @param message message
+     * @param sender sender actor reference
+     */
     fun send(message: Any, sender: ActorRef = ActorRef.EMPTY)
+
+    /**
+     * Ask a status from an actor
+     *
+     * @param message message
+     * @param sender sender actor reference
+     * @return deferred result
+     */
+    fun <T : Any> ask(message: Any, sender: ActorRef = ActorRef.EMPTY, callback: CompletableDeferred<in T>)
 }
 
 /**
@@ -391,6 +444,17 @@ interface ActorSystem : DisposableHandle {
      */
     fun send(actorRef: ActorRef, message: Any) = send(actorRef, ActorRef.EMPTY, message)
 
+
+    /**
+     * ask a status from an actor
+     * @param actorRef actor reference
+     * @param sender sender actor reference
+     * @param message message
+     * @param timeout timeout
+     * @return deferred result
+     */
+    fun <T : Any> ask(actorRef: ActorRef, sender: ActorRef, message: Any, timeout: Duration = Duration.INFINITE): Deferred<T>
+
     /**
      * get a service actor reference
      * @param kClass actor handler class
@@ -405,7 +469,10 @@ interface ActorSystem : DisposableHandle {
                 if (o != null) return o
                 return kClass.createInstance()
             }
-            return kClass.constructors.first().call(*args)
+            val constructor = kClass.constructors.firstOrNull {
+                it.parameters.size == args.size
+            } ?: error("No matching constructor for ${kClass.simpleName}")
+            return constructor.call(*args)
         }
     }
 
@@ -450,14 +517,38 @@ inline fun <reified Handler : ActorHandler> ActorSystem.getService(): ActorRef =
  * Actor handler - business logic for an actor
  */
 interface ActorHandler {
+
+    /**
+     * Ask handler
+     */
+    suspend fun onAsk(message: Any, sender: ActorRef, callback: CompletableDeferred<in Any>) {}
+
+    /**
+     * Receive handler
+     */
     suspend fun onMessage(message: Any, sender: ActorRef) {}
+
+    /**
+     * exception handler
+     */
     suspend fun onException(exception: Throwable, sender: ActorRef) {
         throw exception
     }
 
     // life-cycle functions
+    /**
+     * Before the actor receiving and processing messages
+     */
     suspend fun preStart() {}
+
+    /**
+     * After the actor stopped receiving messages
+     */
     suspend fun postStop() {}
+
+    /**
+     * Before the actor system destroys the actor
+     */
     fun preDestroy() {}
 }
 
@@ -475,7 +566,7 @@ data class ActorSystemNotificationMessage(
      * Notification type
      */
     enum class NotificationType {
-        ACTOR_CREATED, ACTOR_DESTROYED, ACTOR_EXCEPTION, ACTOR_FATAL, ACTOR_MESSAGE, MESSAGE_UNDELIVERED
+        ACTOR_CREATED, ACTOR_DESTROYED, ACTOR_EXCEPTION, ACTOR_FATAL, ACTOR_MESSAGE, MESSAGE_UNDELIVERED, ACTOR_TIMEOUT
     }
 
     /**
