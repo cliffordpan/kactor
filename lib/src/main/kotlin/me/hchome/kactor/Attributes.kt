@@ -13,43 +13,43 @@ interface Attributes {
     /**
      * Returns the value for the given key or throws [NoSuchElementException] if no value is found
      */
-    suspend operator fun <T : Any> get(key: AttributeKey<T>): T = getOrNull(key)
+    operator fun <T : Any> get(key: AttributeKey<T>): T = getOrNull(key)
         ?: throw NoSuchElementException("Attribute ${key.name} not found")
 
     /**
      * Returns the value for the given key or `null` if no value is found
      */
-    suspend operator fun <T : Any> set(key: AttributeKey<T>, value: T) = put(key, value)
+    operator fun <T : Any> set(key: AttributeKey<T>, value: T) = put(key, value)
 
     /**
      * Puts the given value under the given key. If the key already has a value, it is replaced and the old value is returned
      */
-    suspend fun <T : Any> put(key: AttributeKey<T>, value: T)
+    fun <T : Any> put(key: AttributeKey<T>, value: T)
 
     /**
      * Removes the value for the given key and returns it or `null` if no value is found
      */
-    suspend fun <T : Any> remove(key: AttributeKey<T>): T?
+    fun <T : Any> remove(key: AttributeKey<T>): T?
 
     /**
      * Returns `true` if the given key is present in the map
      */
-    suspend operator fun contains(key: AttributeKey<*>): Boolean
+    operator fun contains(key: AttributeKey<*>): Boolean
 
     /**
      * Returns the value for the given key or `null` if no value is found
      */
-    suspend fun <T : Any> getOrNull(key: AttributeKey<T>): T?
+    fun <T : Any> getOrNull(key: AttributeKey<T>): T?
 
     /**
      * Clears the map, removing all values
      */
-    suspend fun clear()
+    fun clear()
 
     /**
      * Returns the value for the given key or calls [defaultValue] if no value is found
      */
-    suspend fun <T : Any> getOrPut(key: AttributeKey<T>, defaultValue: () -> T): T {
+    fun <T : Any> getOrPut(key: AttributeKey<T>, defaultValue: () -> T): T {
         return getOrNull(key) ?: defaultValue().also { put(key, it) }
     }
 
@@ -57,6 +57,16 @@ interface Attributes {
      * Returns all values in the map
      */
     val allKeys: Set<AttributeKey<*>>
+
+    /**
+     * Returns a snapshot of the current attributes
+     */
+    fun snapshot(): Attributes
+
+    /**
+     * Recovers the attributes from the given snapshot
+     */
+    fun recover(attributes: Attributes)
 }
 
 /**
