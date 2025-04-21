@@ -26,7 +26,7 @@ internal class AttributesImpl(ref: Attributes? = null) : Attributes {
     }
 
     override fun contains(key: AttributeKey<*>): Boolean {
-        return attributes.contains(key)
+        return attributes.containsKey(key)
     }
 
     override fun <T : Any> getOrNull(key: AttributeKey<T>): T? {
