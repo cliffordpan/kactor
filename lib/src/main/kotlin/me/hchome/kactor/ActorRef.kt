@@ -46,6 +46,16 @@ data class ActorRef(
     companion object {
         @JvmStatic
         val EMPTY = ActorRef(ActorHandler::class, "")
+
+        @JvmStatic
+        inline fun <reified T : ActorHandler> ofService() = ActorRef(T::class, "${T::class}")
+
+        @JvmStatic
+        inline fun <reified T : ActorHandler> of(actorId: String) = ActorRef(T::class, actorId)
+
+        @JvmStatic
+        inline fun <reified T : ActorHandler> childOf(parent: ActorRef, id: String) =
+            if (parent.isEmpty()) of<T>(id) else of<T>("${parent.actorId}/$id")
     }
 }
 

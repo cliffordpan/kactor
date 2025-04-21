@@ -107,7 +107,7 @@ interface ActorContext : Attributes {
     /**
      * Send a message to a service actor
      */
-    fun sendService(kClass: KClass<ActorHandler>, message: Any)
+    fun <T : ActorHandler> sendService(kClass: KClass<out T>, message: Any)
 
     /**
      * Send a message to any actor
@@ -164,7 +164,7 @@ interface ActorContext : Attributes {
      * Create a child actor
      * @see ActorRef
      */
-    suspend fun <T> createChild(
+    suspend fun <T> newChild(
         id: String? = null,
         kClass: KClass<T>,
     ): ActorRef where T : ActorHandler
@@ -173,7 +173,7 @@ interface ActorContext : Attributes {
      * Create a new actor
      * @see ActorRef
      */
-    suspend fun <T> createNew(
+    suspend fun <T> newActor(
         id: String? = null,
         kClass: KClass<T>,
     ): ActorRef where T : ActorHandler
@@ -195,11 +195,11 @@ interface ActorContext : Attributes {
 }
 
 suspend inline fun <reified T : ActorHandler> ActorContext.createChild(id: String? = null): ActorRef {
-    return createChild(id, T::class)
+    return newChild(id, T::class)
 }
 
 suspend inline fun <reified T : ActorHandler> ActorContext.createNew(id: String? = null): ActorRef {
-    return createNew(id, T::class)
+    return newActor(id, T::class)
 }
 
 
