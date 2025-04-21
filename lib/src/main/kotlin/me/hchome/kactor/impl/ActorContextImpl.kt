@@ -9,6 +9,7 @@ import me.hchome.kactor.ActorSystem
 import me.hchome.kactor.ActorSystemException
 import me.hchome.kactor.ActorSystemNotificationMessage
 import me.hchome.kactor.Attributes
+import me.hchome.kactor.serviceOf
 import kotlin.reflect.KClass
 import kotlin.time.Duration
 
@@ -29,17 +30,16 @@ internal data class ActorContextImpl(private val self: BaseActor, private val sy
         get() = self.childrenRefs.toSet()
 
     override fun <T : ActorHandler> sendService(kClass: KClass<out T>, message: Any) {
-        val ref = ActorRef(kClass, "$kClass")
-        if (ref in system) {
-            system.send(ref, self.ref, message)
-            return
-        } else {
+        val ref = ActorRef.ofService(kClass)
+        if (ref !in system) {
             system.notifySystem(
                 self.ref, ActorRef.Companion.EMPTY,
                 "Target service $kClass is not found: $message",
                 ActorSystemNotificationMessage.NotificationType.ACTOR_EXCEPTION
             )
+            return
         }
+        system.send(ref, self.ref, message)
     }
 
     override fun hasActor(ref: ActorRef): Boolean = ref in system
@@ -170,5 +170,7 @@ internal data class ActorContextImpl(private val self: BaseActor, private val sy
             throw ActorSystemException("Actor not in system")
         }
     }
+
+    override suspend fun <T : ActorHandler> newService(kClass: KClass<T>): ActorRef = system.serviceOfSuspend(kClass)
 }
 

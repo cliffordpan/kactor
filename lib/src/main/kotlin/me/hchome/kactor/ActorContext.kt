@@ -179,6 +179,8 @@ interface ActorContext : Attributes {
     ): ActorRef where T : ActorHandler
 
 
+    suspend fun <T> newService(kClass: KClass<T>): ActorRef where T : ActorHandler
+
     /**
      * Schedule a task
      */
@@ -201,6 +203,10 @@ suspend inline fun <reified T : ActorHandler> ActorContext.newChild(id: String? 
 suspend inline fun <reified T : ActorHandler> ActorContext.newActor(id: String? = null): ActorRef {
     return newActor(id, T::class)
 }
+
+suspend inline fun <reified T: ActorHandler> ActorContext.newService(): ActorRef =  newService(T::class)
+
+inline fun <reified T : ActorHandler> ActorContext.sendService(message: Any) = sendService(T::class, message)
 
 
 /**
