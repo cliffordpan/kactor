@@ -194,11 +194,11 @@ interface ActorContext : Attributes {
     fun task(initDelay: Duration = Duration.ZERO, block: suspend ActorHandler.() -> Unit): Job
 }
 
-suspend inline fun <reified T : ActorHandler> ActorContext.createChild(id: String? = null): ActorRef {
+suspend inline fun <reified T : ActorHandler> ActorContext.newChild(id: String? = null): ActorRef {
     return newChild(id, T::class)
 }
 
-suspend inline fun <reified T : ActorHandler> ActorContext.createNew(id: String? = null): ActorRef {
+suspend inline fun <reified T : ActorHandler> ActorContext.newActor(id: String? = null): ActorRef {
     return newActor(id, T::class)
 }
 
