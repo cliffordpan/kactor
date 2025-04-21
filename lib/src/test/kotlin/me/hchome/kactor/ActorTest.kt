@@ -3,11 +3,13 @@ package me.hchome.kactor
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import me.hchome.kactor.impl.context
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.Test
@@ -104,6 +106,10 @@ class TestActor3 : ActorHandler {
     override suspend fun onAsk(message: Any, sender: ActorRef, callback: CompletableDeferred<in Any>) {
         when (message) {
             "Hello" -> callback.complete("Hello to you too")
+            "recover" -> {
+                println("ask recovered value")
+                callback.complete(context()[TEST_ATTR])
+            }
             else -> callback.complete("I don't know what you say")
         }
     }
@@ -111,17 +117,39 @@ class TestActor3 : ActorHandler {
     override suspend fun onMessage(message: Any, sender: ActorRef) {
         val context = context()
         when (message) {
-            "start" -> {
-                context.createChild<TestActor3>(id = "c1")
-            }
+            "start" -> context.createChild<TestActor3>(id = "c1")
 
             "do" -> {
-                val rs: String = context.askChild<String, TestActor3>("Hello", id = "c1").await()
+                val childRef = context.getChild("c1")
+                val rs: String = context.ask<String>("Hello", childRef).await()
                 println(rs)
+            }
+
+            "failed" -> {
+                context[TEST_ATTR] = Random(10).nextInt(1, 100)
+                println(context[TEST_ATTR])
+                throw Exception("Failed")
+            }
+
+            "recover" -> {
+                val childRef = context.getChild("c1")
+                println(context.ask<Int>("recover", childRef).await())
+            }
+
+            "failed child" -> {
+                val childRef = context.getChild("c1")
+                context.sendChild(childRef, "failed")
+            }
+
+            "job" -> {
+                println("I'm restarted")
             }
         }
     }
 
+    companion object {
+        val TEST_ATTR = AttributeKey<Int>("testAttr")
+    }
 }
 
 class ActorTest {
@@ -153,15 +181,42 @@ class ActorTest {
         joinAll(job1, job2)
     }
 
+
     @Test
     fun test2(): Unit = runBlocking {
-        val actorRef = SYSTEM.actorOf<TestActor3>()
+        val actorRef = SYSTEM.actorOfSuspend<TestActor3>()
         SYSTEM.send(actorRef, "start")
         SYSTEM.send(actorRef, "do")
         delay(5.seconds)
     }
 
-    companion object {
+    @Test
+    fun test3(): Unit = runBlocking {
+        val actorRef = SYSTEM.actorOfSuspend<TestActor3>()
+        SYSTEM.send(actorRef, "failed")
+        SYSTEM.send(actorRef, "job")
+
+        delay(5.seconds)
+    }
+
+    @Test
+    fun test4(): Unit = runBlocking {
+        val actorRef = SYSTEM.actorOfSuspend<TestActor3>()
+        SYSTEM.send(actorRef, "start")
+        SYSTEM.send(actorRef, "failed child")
+        delay(5.seconds)
+    }
+
+    @Test
+    fun test5(): Unit = runBlocking {
+        val actorRef = SYSTEM.actorOfSuspend<TestActor3>()
+        SYSTEM.send(actorRef, "start")
+        SYSTEM.send(actorRef, "failed child")
+        SYSTEM.send(actorRef, "recover")
+        delay(5.seconds)
+    }
+
+    companion object : CoroutineScope by CoroutineScope(Dispatchers.Default) {
 
         lateinit var SYSTEM: ActorSystem
 
@@ -169,12 +224,22 @@ class ActorTest {
         @BeforeAll
         fun createSystem() {
             SYSTEM = ActorSystem.createOrGet(Dispatchers.IO)
+            SYSTEM.register<TestActor>()
+            SYSTEM.register<TestActor2>()
+            SYSTEM.register<TestActor3>()
+
+            launch {
+                SYSTEM.notifications.collect { notification ->
+                    println(notification)
+                }
+            }
         }
 
         @AfterAll
         @JvmStatic
         fun cleanup() {
             SYSTEM.dispose()
+            cancel()
         }
     }
 }
