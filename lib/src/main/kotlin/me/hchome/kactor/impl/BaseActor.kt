@@ -57,11 +57,7 @@ internal class BaseActor(
         try {
             h.onMessage(message, sender)
         } catch (e: Throwable) {
-            h.onException(e, sender)
-            actorSystem.notifySystem(
-                sender, context.ref, "Exception occurred: $message",
-                ActorSystemNotificationMessage.NotificationType.ACTOR_EXCEPTION, e
-            )
+            fatalHandling(e, message, sender)
         }
     }
 
@@ -69,11 +65,7 @@ internal class BaseActor(
         try {
             h.onAsk(message, sender, cb)
         } catch (e: Throwable) {
-            h.onException(e, sender)
-            actorSystem.notifySystem(
-                sender, context.ref, "Exception occurred: $message",
-                ActorSystemNotificationMessage.NotificationType.ACTOR_EXCEPTION, e
-            )
+            fatalHandling(e, message, sender)
         }
     }
 
