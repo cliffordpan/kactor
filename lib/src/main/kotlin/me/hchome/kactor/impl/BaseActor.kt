@@ -51,22 +51,16 @@ internal class BaseActor(
     CoroutineScope,
     DisposableHandle {
 
-    private val mailbox = Channel<MessageWrapper>(actorConfig.capacity, actorConfig.onBufferOverflow, ::undeliveredMessageHandler)
+    private val mailbox =
+        Channel<MessageWrapper>(actorConfig.capacity, actorConfig.onBufferOverflow, ::undeliveredMessageHandler)
 
     private val handlerScope: ActorHandlerScope = { h: ActorHandler, message: Any, sender: ActorRef ->
-        try {
-            h.onMessage(message, sender)
-        } catch (e: Throwable) {
-            fatalHandling(e, message, sender)
-        }
+        h.onMessage(message, sender)
+
     }
 
     private val askHandlerScope: AskActorHandlerScope = { h: ActorHandler, message: Any, sender: ActorRef, cb ->
-        try {
-            h.onAsk(message, sender, cb)
-        } catch (e: Throwable) {
-            fatalHandling(e, message, sender)
-        }
+        h.onAsk(message, sender, cb)
     }
 
     override val ref: ActorRef
@@ -244,7 +238,6 @@ internal class BaseActor(
             actorSystem.supervise(ref, singleton, e)
         }
     }
-
 
 
     private interface MessageWrapper {
