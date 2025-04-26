@@ -9,14 +9,13 @@ import me.hchome.kactor.ActorSystem
 import me.hchome.kactor.ActorSystemException
 import me.hchome.kactor.ActorSystemNotificationMessage
 import me.hchome.kactor.Attributes
-import me.hchome.kactor.serviceOf
 import kotlin.reflect.KClass
 import kotlin.time.Duration
 
 internal data class ActorContextImpl(private val self: BaseActor, private val system: ActorSystem) : ActorContext,
     Attributes by AttributesImpl() {
 
-    override fun getService(kClass: KClass<ActorHandler>): ActorRef = system.getService(kClass)
+    override fun getService(kClass: KClass<out ActorHandler>): ActorRef = system.getService(kClass)
 
     override val services: Set<ActorRef>
         get() = system.getServices()

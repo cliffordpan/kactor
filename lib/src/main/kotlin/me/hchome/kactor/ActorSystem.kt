@@ -111,7 +111,7 @@ interface ActorSystem : Supervisor, ActorHandlerRegistry, DisposableHandle {
      * @param kClass actor handler class
      * @return actor reference
      */
-    fun getService(kClass: KClass<ActorHandler>): ActorRef
+    fun getService(kClass: KClass<out ActorHandler>): ActorRef
 
 
     fun notifySystem(
@@ -158,3 +158,5 @@ inline fun <reified T> ActorSystem.actorOf(id: String? = null, parent: ActorRef 
     actorOf(id, parent, T::class)
 
 inline fun <reified T> ActorSystem.serviceOf(): ActorRef where T : ActorHandler = serviceOf(T::class)
+
+inline fun <reified T> ActorSystem.getService(): ActorRef where T : ActorHandler = getService(T::class)

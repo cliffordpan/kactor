@@ -81,7 +81,7 @@ internal class ActorSystemImpl(
         return all().filter { it.singleton }.map { it.ref }.toSet()
     }
 
-    override fun getService(kClass: KClass<ActorHandler>): ActorRef {
+    override fun getService(kClass: KClass<out ActorHandler>): ActorRef {
         return all().firstOrNull {
             it.ref.handler == kClass &&
                     it.ref.actorId == "$kClass" &&
