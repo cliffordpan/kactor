@@ -1,3 +1,4 @@
+@file:Suppress("unused")
 package me.hchome.kactor
 
 import kotlinx.coroutines.Deferred
@@ -14,6 +15,7 @@ import kotlin.time.Duration
  * @see ActorContext
  * @see ActorHandler
  */
+
 interface ActorContext : Attributes {
     /**
      * Actor reference
@@ -73,13 +75,13 @@ interface ActorContext : Attributes {
      * Check if an actor has a service
      * @see ActorRef
      */
-    fun hasService(kClass: KClass<ActorHandler>): Boolean = getService(kClass).isNotEmpty()
+    fun hasService(kClass: KClass<out ActorHandler>): Boolean = getService(kClass).isNotEmpty()
 
     /**
      * Get a service actor reference
      * @see ActorRef
      */
-    fun getService(kClass: KClass<ActorHandler>): ActorRef
+    fun getService(kClass: KClass<out ActorHandler>): ActorRef
 
     /**
      * Check if an actor is a child of target actor
@@ -204,9 +206,11 @@ suspend inline fun <reified T : ActorHandler> ActorContext.newActor(id: String? 
     return newActor(id, T::class)
 }
 
-suspend inline fun <reified T: ActorHandler> ActorContext.newService(): ActorRef =  newService(T::class)
+suspend inline fun <reified T : ActorHandler> ActorContext.newService(): ActorRef = newService(T::class)
 
 inline fun <reified T : ActorHandler> ActorContext.sendService(message: Any) = sendService(T::class, message)
+
+inline fun <reified T : ActorHandler> ActorContext.getService() = getService(T::class)
 
 
 /**
