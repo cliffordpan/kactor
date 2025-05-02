@@ -193,13 +193,13 @@ interface ActorContext : Attributes {
     fun schedule(
         period: Duration,
         initDelay: Duration = Duration.ZERO,
-        block: suspend ActorHandler.() -> Unit
+        block: suspend ActorHandler.(String) -> Unit
     ): Job
 
     /**
      * create a run task
      */
-    fun task(initDelay: Duration = Duration.ZERO, block: suspend ActorHandler.() -> Unit): Job
+    fun task(initDelay: Duration = Duration.ZERO, block: suspend ActorHandler.(String) -> Unit): Job
 }
 
 suspend inline fun <reified T : ActorHandler> ActorContext.newChild(id: String? = null): ActorRef {

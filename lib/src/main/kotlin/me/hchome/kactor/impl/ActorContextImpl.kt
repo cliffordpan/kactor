@@ -133,14 +133,14 @@ internal data class ActorContextImpl(private val self: BaseActor, private val sy
     override fun schedule(
         period: Duration,
         initDelay: Duration,
-        block: suspend ActorHandler.() -> Unit
+        block: suspend ActorHandler.(String) -> Unit
     ): Job {
         return self.schedule(period, initDelay, block)
     }
 
     override fun task(
         initDelay: Duration,
-        block: suspend ActorHandler.() -> Unit
+        block: suspend ActorHandler.(String) -> Unit
     ): Job {
         return self.task(initDelay, block)
     }
