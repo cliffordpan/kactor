@@ -236,6 +236,7 @@ internal class ActorSystemImpl(
             ActorSystemNotificationMessage.NotificationType.MESSAGE_UNDELIVERED,
             ActorSystemNotificationMessage.NotificationType.ACTOR_TIMEOUT,
             ActorSystemNotificationMessage.NotificationType.ACTOR_EXCEPTION,
+            ActorSystemNotificationMessage.NotificationType.ACTOR_TASK_EXCEPTION
                 -> ActorSystemNotificationMessage.MessageLevel.WARN
 
             ActorSystemNotificationMessage.NotificationType.ACTOR_MESSAGE,
