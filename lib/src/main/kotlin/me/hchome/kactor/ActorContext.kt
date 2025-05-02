@@ -1,11 +1,15 @@
 @file:Suppress("unused")
+
 package me.hchome.kactor
 
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.BufferOverflow
+import kotlin.coroutines.CoroutineContext
 import kotlin.reflect.KClass
 import kotlin.time.Duration
+import kotlin.uuid.ExperimentalUuidApi
+import kotlin.uuid.Uuid
 
 
 /**
@@ -211,6 +215,37 @@ suspend inline fun <reified T : ActorHandler> ActorContext.newService(): ActorRe
 inline fun <reified T : ActorHandler> ActorContext.sendService(message: Any) = sendService(T::class, message)
 
 inline fun <reified T : ActorHandler> ActorContext.getService() = getService(T::class)
+
+
+/**
+ * Task type
+ */
+enum class TaskType {
+    TASK, SCHEDULE
+}
+
+/**
+ * Task information
+ */
+sealed class TaskInfo @OptIn(ExperimentalUuidApi::class) constructor(
+    val type: TaskType,
+    val id: String = Uuid.random().toHexString()
+) : CoroutineContext.Element {
+    override val key: CoroutineContext.Key<*> = Key
+
+    class Task(
+        val initDelay: Duration,
+        val block: suspend ActorHandler.(String) -> Unit
+    ) : TaskInfo(TaskType.TASK)
+
+    class Schedule(
+        val initDelay: Duration,
+        val period: Duration,
+        val block: suspend ActorHandler.(String) -> Unit
+    ) : TaskInfo(TaskType.SCHEDULE)
+
+    companion object Key : CoroutineContext.Key<TaskInfo>
+}
 
 
 /**

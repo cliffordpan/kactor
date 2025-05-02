@@ -3,6 +3,7 @@ package me.hchome.kactor
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
@@ -13,6 +14,7 @@ import me.hchome.kactor.impl.context
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.Test
+import kotlin.coroutines.CoroutineContext
 import kotlin.random.Random
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
@@ -110,6 +112,7 @@ class TestActor3 : ActorHandler {
                 println("ask recovered value")
                 callback.complete(context()[TEST_ATTR])
             }
+
             else -> callback.complete("I don't know what you say")
         }
     }
@@ -117,7 +120,7 @@ class TestActor3 : ActorHandler {
     override suspend fun onMessage(message: Any, sender: ActorRef) {
         val context = context()
         when (message) {
-            "start" -> context.createChild<TestActor3>(id = "c1")
+            "start" -> context.newChild<TestActor3>(id = "c1")
 
             "do" -> {
                 val childRef = context.getChild("c1")
@@ -149,6 +152,28 @@ class TestActor3 : ActorHandler {
 
     companion object {
         val TEST_ATTR = AttributeKey<Int>("testAttr")
+    }
+}
+
+
+class A : CoroutineScope {
+    private val job = SupervisorJob()
+    override val coroutineContext: CoroutineContext
+        get() = job + Dispatchers.Default
+
+    fun task1() = launch {
+        println("task1: start")
+        delay(500)
+        println("task1: throwing exception")
+        throw RuntimeException("Something went wrong in task1")
+    }
+
+    fun task2() = launch {
+        println("task2: start")
+        repeat(10) { i ->
+            delay(300)
+            println("task2: still running $i")
+        }
     }
 }
 
@@ -214,6 +239,16 @@ class ActorTest {
         SYSTEM.send(actorRef, "failed child")
         SYSTEM.send(actorRef, "recover")
         delay(5.seconds)
+    }
+
+    @Test
+    fun test6(): Unit = runBlocking {
+        val a = A()
+        a.task1()
+        a.task2()
+
+        delay(4000) // 等待所有输出
+        println("main: done")
     }
 
     companion object : CoroutineScope by CoroutineScope(Dispatchers.Default) {
