@@ -2,6 +2,8 @@ package me.hchome.kactor.impl
 
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineExceptionHandler
+import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.DisposableHandle
@@ -25,6 +27,7 @@ import me.hchome.kactor.ActorSystemNotificationMessage
 import me.hchome.kactor.Attributes
 import me.hchome.kactor.RestartStrategy.*
 import me.hchome.kactor.Supervisor
+import me.hchome.kactor.TaskInfo
 import me.hchome.kactor.isNotEmpty
 import kotlin.collections.forEach
 import kotlin.coroutines.AbstractCoroutineContextElement
@@ -32,6 +35,8 @@ import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.coroutineContext
 import kotlin.reflect.KClass
 import kotlin.time.Duration
+import kotlin.uuid.ExperimentalUuidApi
+import kotlin.uuid.Uuid
 
 private typealias ActorHandlerScope = suspend ActorHandler.(Any, ActorRef) -> Unit
 private typealias AskActorHandlerScope = suspend ActorHandler.(Any, ActorRef, CompletableDeferred<in Any>) -> Unit
@@ -63,6 +68,15 @@ internal class BaseActor(
                 ActorSystemNotificationMessage.NotificationType.ACTOR_EXCEPTION, e
             )
         }
+    }
+
+    private val taskExceptionHandler = CoroutineExceptionHandler { ctx, e ->
+        actorSystem.notifySystem(
+            ref, ref, "Exception occurred [${ref}] task: $e",
+            ActorSystemNotificationMessage.NotificationType.ACTOR_TASK_EXCEPTION, e
+        )
+        val info = ctx[TaskInfo]?: return@CoroutineExceptionHandler
+        handler.onTaskException(info, e, this@BaseActor.context)
     }
 
     private val askHandlerScope: AskActorHandlerScope = { h: ActorHandler, message: Any, sender: ActorRef, cb ->
@@ -135,23 +149,31 @@ internal class BaseActor(
         return context.snapshot()
     }
 
+    @OptIn(ExperimentalUuidApi::class)
     fun task(
         initDelay: Duration = Duration.ZERO,
-        block: suspend ActorHandler.() -> Unit
-    ): Job = launch {
-        delay(initDelay)
-        block(handler)
+        block: suspend ActorHandler.(String) -> Unit
+    ): Job {
+        val taskInfo = TaskInfo.Task(initDelay, block)
+        return launch(taskInfo + taskExceptionHandler) {
+            delay(initDelay)
+            block(handler, taskInfo.id)
+        }
     }
 
+    @OptIn(ExperimentalUuidApi::class)
     fun schedule(
         period: Duration,
         initDelay: Duration = Duration.ZERO,
-        block: suspend ActorHandler.() -> Unit
-    ): Job = launch {
-        delay(initDelay)
-        while (isActive) {
-            block(handler)
-            delay(period)
+        block: suspend ActorHandler.(String) -> Unit
+    ): Job {
+        val taskInfo = TaskInfo.Schedule(period, initDelay, block)
+        return launch(taskInfo + taskExceptionHandler) {
+            delay(initDelay)
+            while (isActive) {
+                block(handler, taskInfo.id)
+                delay(period)
+            }
         }
     }
 
@@ -252,7 +274,6 @@ internal class BaseActor(
             actorSystem.supervise(ref, singleton, e)
         }
     }
-
 
 
     private interface MessageWrapper {

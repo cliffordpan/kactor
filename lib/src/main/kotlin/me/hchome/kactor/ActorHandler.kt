@@ -25,6 +25,11 @@ interface ActorHandler {
     }
 
     /**
+     * Task exception handler
+     */
+    fun onTaskException(taskInfo: TaskInfo, exception: Throwable, context: ActorContext) {}
+
+    /**
      * Before the actor receiving and processing messages
      */
     suspend fun preStart() {}
