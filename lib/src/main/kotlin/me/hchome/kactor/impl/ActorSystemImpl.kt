@@ -170,10 +170,9 @@ internal class ActorSystemImpl(
     }
 
     override fun destroyActor(actorRef: ActorRef) {
-        val actor = this[actorRef]
-        this.remove(actorRef)
+        this.remove(actorRef).dispose()
         notifySystem(
-            actor.ref,
+            actorRef,
             ActorRef.Companion.EMPTY,
             "Actor destroyed",
             ActorSystemNotificationMessage.NotificationType.ACTOR_DESTROYED
