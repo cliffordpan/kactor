@@ -108,14 +108,25 @@ internal class BaseActor(
     }
 
     override fun send(message: Any, sender: ActorRef) {
-        mailbox.trySend(SetStatusMessageWrapperImpl(message, sender)).getOrThrow()
+        val result = mailbox.trySend(SetStatusMessageWrapperImpl(message, sender))
+        if(!result.isSuccess) {
+            val e = result.exceptionOrNull()
+            actorSystem.notifySystem(sender, this.ref, "Failed to send",
+                ActorSystemNotificationMessage.NotificationType.ACTOR_FATAL, e)
+            actorSystem.destroyActor(this.ref)
+        }
     }
 
     override fun <T : Any> ask(message: Any, sender: ActorRef, callback: CompletableDeferred<in T>) {
-        try {
-            mailbox.trySend(GetStatusMessageWrapperImpl(message, sender, callback)).getOrThrow()
-        } catch (e: Throwable) {
-            callback.completeExceptionally(e)
+        val result = mailbox.trySend(GetStatusMessageWrapperImpl(message, sender, callback))
+        if(!result.isSuccess) {
+            val e = result.exceptionOrNull()
+            actorSystem.notifySystem(sender, this.ref, "Failed to ask",
+                ActorSystemNotificationMessage.NotificationType.ACTOR_FATAL, e)
+            actorSystem.destroyActor(this.ref)
+            if(e != null) {
+                callback.completeExceptionally(e)
+            }
         }
     }
 
