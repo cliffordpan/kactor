@@ -174,7 +174,6 @@ interface ActorContext : Attributes {
     /**
      * restart an actor
      */
-    suspend fun restartActor(ref: ActorRef)
 
     /**
      * Create a child actor
