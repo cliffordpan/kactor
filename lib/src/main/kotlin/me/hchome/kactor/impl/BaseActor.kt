@@ -115,7 +115,6 @@ internal class BaseActor(
                 sender, this.ref, "Failed to send",
                 ActorSystemNotificationMessage.NotificationType.ACTOR_FATAL, e
             )
-            actorSystem.destroyActor(this.ref)
             throw IllegalStateException("Failed to send message to actor ${this::class.simpleName}: $message", e)
         }
     }
@@ -128,7 +127,6 @@ internal class BaseActor(
                 sender, this.ref, "Failed to ask",
                 ActorSystemNotificationMessage.NotificationType.ACTOR_FATAL, e
             )
-            actorSystem.destroyActor(this.ref)
             if (e != null) {
                 callback.completeExceptionally(e)
             }

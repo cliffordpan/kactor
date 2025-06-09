@@ -167,6 +167,16 @@ interface ActorContext : Attributes {
     fun stopChildren()
 
     /**
+     * Stop an actor with its reference
+     */
+    fun stopActor(ref: ActorRef)
+
+    /**
+     * restart an actor
+     */
+    suspend fun restartActor(ref: ActorRef)
+
+    /**
      * Create a child actor
      * @see ActorRef
      */
