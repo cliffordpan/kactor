@@ -69,7 +69,7 @@ internal class BaseActor(
             ref, ref, "Exception occurred [${ref}] task: $e",
             ActorSystemNotificationMessage.NotificationType.ACTOR_TASK_EXCEPTION, e
         )
-        val info = ctx[TaskInfo]?: return@CoroutineExceptionHandler
+        val info = ctx[TaskInfo] ?: return@CoroutineExceptionHandler
         handler.onTaskException(info, e, this@BaseActor.context)
     }
 
@@ -109,22 +109,27 @@ internal class BaseActor(
 
     override fun send(message: Any, sender: ActorRef) {
         val result = mailbox.trySend(SetStatusMessageWrapperImpl(message, sender))
-        if(!result.isSuccess) {
+        if (!result.isSuccess) {
             val e = result.exceptionOrNull()
-            actorSystem.notifySystem(sender, this.ref, "Failed to send",
-                ActorSystemNotificationMessage.NotificationType.ACTOR_FATAL, e)
+            actorSystem.notifySystem(
+                sender, this.ref, "Failed to send",
+                ActorSystemNotificationMessage.NotificationType.ACTOR_FATAL, e
+            )
             actorSystem.destroyActor(this.ref)
+            throw IllegalStateException("Failed to send message to actor ${this::class.simpleName}: $message", e)
         }
     }
 
     override fun <T : Any> ask(message: Any, sender: ActorRef, callback: CompletableDeferred<in T>) {
         val result = mailbox.trySend(GetStatusMessageWrapperImpl(message, sender, callback))
-        if(!result.isSuccess) {
+        if (!result.isSuccess) {
             val e = result.exceptionOrNull()
-            actorSystem.notifySystem(sender, this.ref, "Failed to ask",
-                ActorSystemNotificationMessage.NotificationType.ACTOR_FATAL, e)
+            actorSystem.notifySystem(
+                sender, this.ref, "Failed to ask",
+                ActorSystemNotificationMessage.NotificationType.ACTOR_FATAL, e
+            )
             actorSystem.destroyActor(this.ref)
-            if(e != null) {
+            if (e != null) {
                 callback.completeExceptionally(e)
             }
         }
