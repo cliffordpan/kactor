@@ -100,11 +100,6 @@ internal data class ActorContextImpl(private val self: BaseActor, private val sy
         system.destroyActor(ref)
     }
 
-    override suspend fun restartActor(ref: ActorRef) {
-        system.notifySystem(ActorRef.EMPTY, ref, "Restart actor", ActorSystemNotificationMessage.NotificationType.ACTOR_MESSAGE, null)
-        system.destroyActor(ref)
-    }
-
     override fun sendSelf(message: Any) {
         system.send(self.ref, self.ref, message)
     }
@@ -155,14 +150,15 @@ internal data class ActorContextImpl(private val self: BaseActor, private val sy
     }
 
     override fun sendActor(ref: ActorRef, message: Any) {
-        if (ref in system) {
+        try {
             system.send(ref, self.ref, message)
-        } else {
+        } catch (e: IllegalStateException) {
             system.notifySystem(
                 self.ref, ActorRef.Companion.EMPTY,
                 "Send a message to an empty actor $ref: $message",
                 ActorSystemNotificationMessage.NotificationType.MESSAGE_UNDELIVERED
             )
+            throw e
         }
     }
 
