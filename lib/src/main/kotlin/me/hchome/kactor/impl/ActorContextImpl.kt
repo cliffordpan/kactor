@@ -158,7 +158,7 @@ internal data class ActorContextImpl(private val self: BaseActor, private val sy
                 "Send a message to an empty actor $ref: $message",
                 ActorSystemNotificationMessage.NotificationType.MESSAGE_UNDELIVERED
             )
-            throw e
+            throw ActorSystemException("Send a message to an empty actor $ref: $message", e)
         }
     }
 
