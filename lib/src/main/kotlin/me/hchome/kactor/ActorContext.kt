@@ -2,6 +2,7 @@
 
 package me.hchome.kactor
 
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.BufferOverflow
@@ -14,13 +15,13 @@ import kotlin.uuid.Uuid
 
 /**
  * Actor context is a container for actor information and methods. Use the context to do the operations
- * on the actor.
+ * on the actor. Implements [CoroutineScope] to allow the actor to run coroutines inside the actor context.
+ * So when the actor is stopped, all coroutines inside the context will be cancelled.
  *
  * @see ActorContext
  * @see ActorHandler
  */
-
-interface ActorContext : Attributes {
+interface ActorContext : Attributes, CoroutineScope {
     /**
      * Actor reference
      * @see ActorRef

@@ -1,5 +1,6 @@
 package me.hchome.kactor.impl
 
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
 import me.hchome.kactor.ActorContext
@@ -12,8 +13,12 @@ import me.hchome.kactor.Attributes
 import kotlin.reflect.KClass
 import kotlin.time.Duration
 
+/**
+ * Implementation of [ActorContext] that provides access to the actor system and actor's context.
+ * Open BaseActor's CoroutineScope to use it in the actor handler's methods.
+ */
 internal data class ActorContextImpl(private val self: BaseActor, private val system: ActorSystem) : ActorContext,
-    Attributes by AttributesImpl() {
+    Attributes by AttributesImpl(), CoroutineScope by self {
 
     override fun getService(kClass: KClass<out ActorHandler>): ActorRef = system.getService(kClass)
 
