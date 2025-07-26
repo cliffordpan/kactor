@@ -3,7 +3,6 @@ package me.hchome.kactor.impl
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineExceptionHandler
-import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.DisposableHandle
@@ -36,7 +35,6 @@ import kotlin.coroutines.coroutineContext
 import kotlin.reflect.KClass
 import kotlin.time.Duration
 import kotlin.uuid.ExperimentalUuidApi
-import kotlin.uuid.Uuid
 
 private typealias ActorHandlerScope = suspend ActorHandler.(Any, ActorRef) -> Unit
 private typealias AskActorHandlerScope = suspend ActorHandler.(Any, ActorRef, CompletableDeferred<in Any>) -> Unit
@@ -294,13 +292,18 @@ internal class BaseActor(
 
     @OptIn(DelicateCoroutinesApi::class)
     override fun dispose() {
-        handler.preDestroy()
-        job.cancel()
+        // stop mailbox
         if (!mailbox.isClosedForSend) {
             mailbox.close()
         }
+        // notify handler cleanup
+        handler.preDestroy()
 
-        if (this.coroutineContext.isActive) {
+        // cancel all jobs
+        job.cancel()
+
+        // just in case
+        if (this.isActive) {
             this.cancel()
         }
 
