@@ -54,18 +54,12 @@ internal class BaseActor(
     CoroutineScope,
     DisposableHandle {
 
-    private val mailbox = Channel<MessageWrapper>(actorConfig.capacity, actorConfig.onBufferOverflow, ::undeliveredMessageHandler)
+    private val mailbox =
+        Channel<MessageWrapper>(actorConfig.capacity, actorConfig.onBufferOverflow, ::undeliveredMessageHandler)
 
     private val handlerScope: ActorHandlerScope = { h: ActorHandler, message: Any, sender: ActorRef ->
-        try {
-            h.onMessage(message, sender)
-        } catch (e: Throwable) {
-            h.onException(e, sender)
-            actorSystem.notifySystem(
-                sender, context.ref, "Exception occurred: $message",
-                ActorSystemNotificationMessage.NotificationType.ACTOR_EXCEPTION, e
-            )
-        }
+        h.onMessage(message, sender)
+
     }
 
     private val taskExceptionHandler = CoroutineExceptionHandler { ctx, e ->
@@ -73,20 +67,12 @@ internal class BaseActor(
             ref, ref, "Exception occurred [${ref}] task: $e",
             ActorSystemNotificationMessage.NotificationType.ACTOR_TASK_EXCEPTION, e
         )
-        val info = ctx[TaskInfo]?: return@CoroutineExceptionHandler
+        val info = ctx[TaskInfo] ?: return@CoroutineExceptionHandler
         handler.onTaskException(info, e, this@BaseActor.context)
     }
 
     private val askHandlerScope: AskActorHandlerScope = { h: ActorHandler, message: Any, sender: ActorRef, cb ->
-        try {
-            h.onAsk(message, sender, cb)
-        } catch (e: Throwable) {
-            h.onException(e, sender)
-            actorSystem.notifySystem(
-                sender, context.ref, "Exception occurred: $message",
-                ActorSystemNotificationMessage.NotificationType.ACTOR_EXCEPTION, e
-            )
-        }
+        h.onAsk(message, sender, cb)
     }
 
     override val ref: ActorRef
@@ -120,14 +106,28 @@ internal class BaseActor(
     }
 
     override fun send(message: Any, sender: ActorRef) {
-        mailbox.trySend(SetStatusMessageWrapperImpl(message, sender)).getOrThrow()
+        val result = mailbox.trySend(SetStatusMessageWrapperImpl(message, sender))
+        if (!result.isSuccess) {
+            val e = result.exceptionOrNull()
+            actorSystem.notifySystem(
+                sender, this.ref, "Failed to send",
+                ActorSystemNotificationMessage.NotificationType.ACTOR_FATAL, e
+            )
+            throw IllegalStateException("Failed to send message to actor ${this::class.simpleName}: $message", e)
+        }
     }
 
     override fun <T : Any> ask(message: Any, sender: ActorRef, callback: CompletableDeferred<in T>) {
-        try {
-            mailbox.trySend(GetStatusMessageWrapperImpl(message, sender, callback)).getOrThrow()
-        } catch (e: Throwable) {
-            callback.completeExceptionally(e)
+        val result = mailbox.trySend(GetStatusMessageWrapperImpl(message, sender, callback))
+        if (!result.isSuccess) {
+            val e = result.exceptionOrNull()
+            actorSystem.notifySystem(
+                sender, this.ref, "Failed to ask",
+                ActorSystemNotificationMessage.NotificationType.ACTOR_FATAL, e
+            )
+            if (e != null) {
+                callback.completeExceptionally(e)
+            }
         }
     }
 
