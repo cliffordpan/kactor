@@ -64,7 +64,7 @@ tasks.test {
 kotlin {
     jvmToolchain(21)
     compilerOptions {
-        freeCompilerArgs.add( "-Xjvm-default=all")
+        freeCompilerArgs.addAll( "-Xjvm-default=all", "-Xcontext-parameters" )
     }
 }
 
