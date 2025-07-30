@@ -58,8 +58,9 @@ internal class BaseActor(
         Channel<MessageWrapper>(actorConfig.capacity, actorConfig.onBufferOverflow, ::undeliveredMessageHandler)
 
     private val handlerScope: ActorHandlerScope = { h: ActorHandler, message: Any, sender: ActorRef ->
-        h.onMessage(message, sender)
-
+        with(context) {
+            h.onMessage(message, sender)
+        }
     }
 
     private val taskExceptionHandler = CoroutineExceptionHandler { ctx, e ->
@@ -68,11 +69,15 @@ internal class BaseActor(
             ActorSystemNotificationMessage.NotificationType.ACTOR_TASK_EXCEPTION, e
         )
         val info = ctx[TaskInfo] ?: return@CoroutineExceptionHandler
-        handler.onTaskException(info, e, this@BaseActor.context)
+        with(context) {
+            handler.onTaskException(info, e)
+        }
     }
 
     private val askHandlerScope: AskActorHandlerScope = { h: ActorHandler, message: Any, sender: ActorRef, cb ->
-        h.onAsk(message, sender, cb)
+        with(context) {
+            h.onAsk(message, sender, cb)
+        }
     }
 
     override val ref: ActorRef
@@ -188,27 +193,29 @@ internal class BaseActor(
     @Suppress("UNCHECKED_CAST")
     private fun processingMessage() {
         launch {
-            handler.preStart()
-            mailbox.consumeEach { wrapper ->
-                val message = wrapper.message
-                val sender = wrapper.sender
-                try {
-                    when (wrapper) {
-                        is SetStatusMessageWrapperImpl -> {
-                            val (message, sender) = wrapper
-                            handlerScope(handler, message, sender)
-                        }
+            with(context) {
+                handler.preStart()
+                mailbox.consumeEach { wrapper ->
+                    val message = wrapper.message
+                    val sender = wrapper.sender
+                    try {
+                        when (wrapper) {
+                            is SetStatusMessageWrapperImpl -> {
+                                val (message, sender) = wrapper
+                                handlerScope(handler, message, sender)
+                            }
 
-                        is GetStatusMessageWrapperImpl<*> -> {
-                            val (message, sender, cb) = wrapper
-                            askHandlerScope(handler, message, sender, cb as CompletableDeferred<in Any>)
+                            is GetStatusMessageWrapperImpl<*> -> {
+                                val (message, sender, cb) = wrapper
+                                askHandlerScope(handler, message, sender, cb as CompletableDeferred<in Any>)
+                            }
                         }
+                    } catch (e: Throwable) {
+                        fatalHandling(e, message, sender)
                     }
-                } catch (e: Throwable) {
-                    fatalHandling(e, message, sender)
                 }
+                handler.postStop()
             }
-            handler.postStop()
         }
     }
 
@@ -297,7 +304,9 @@ internal class BaseActor(
             mailbox.close()
         }
         // notify handler cleanup
-        handler.preDestroy()
+        with(context) {
+            handler.preDestroy()
+        }
 
         // cancel all jobs
         job.cancel()

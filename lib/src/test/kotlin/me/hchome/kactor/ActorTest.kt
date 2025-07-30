@@ -30,17 +30,15 @@ class TestActor : ActorHandler, CoroutineScope by CoroutineScope(Dispatchers.IO)
 
     val scope = CoroutineScope(Dispatchers.IO)
 
+    context(context: ActorContext)
     override suspend fun onMessage(message: Any, sender: ActorRef) {
         launch(this@TestActor.coroutineContext + currentCoroutineContext()) {
             delay(1000)
-            val context = context()
             println("Task111: ${context.ref}")
         }
-
-        val context = context()
+        println("==============ref: ${ref.actorId}")
         println("Main: ${context.ref}")
         context.task {
-            val context = context()
             println("Task: ${context.ref}")
         }
         println("$message -- $sender")
@@ -85,8 +83,9 @@ class TestActor : ActorHandler, CoroutineScope by CoroutineScope(Dispatchers.IO)
 
 class TestActor2 : ActorHandler {
     private val scope = CoroutineScope(Dispatchers.IO)
+
+    context(context: ActorContext)
     override suspend fun onMessage(message: Any, sender: ActorRef) {
-        val context = context()
 
         scope.launch {
             if (context.isParent(sender)) {
@@ -105,20 +104,21 @@ class TestActor2 : ActorHandler {
 
 class TestActor3 : ActorHandler {
 
+    context(context: ActorContext)
     override suspend fun onAsk(message: Any, sender: ActorRef, callback: CompletableDeferred<in Any>) {
         when (message) {
             "Hello" -> callback.complete("Hello to you too")
             "recover" -> {
                 println("ask recovered value")
-                callback.complete(context()[TEST_ATTR])
+                callback.complete(context[TEST_ATTR])
             }
 
             else -> callback.complete("I don't know what you say")
         }
     }
 
+    context(context: ActorContext)
     override suspend fun onMessage(message: Any, sender: ActorRef) {
-        val context = context()
         when (message) {
             "start" -> context.newChild<TestActor3>(id = "c1")
 
