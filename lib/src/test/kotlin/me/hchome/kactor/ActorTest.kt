@@ -10,6 +10,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import me.hchome.kactor.B
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.Test
@@ -17,6 +18,7 @@ import kotlin.coroutines.CoroutineContext
 import kotlin.random.Random
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
+import kotlin.uuid.Uuid.Companion.random
 
 data class TestSignal<T>(val completing: CompletableDeferred<in T>) where T : Any
 
@@ -154,6 +156,41 @@ class TestActor3 : ActorHandler {
     }
 }
 
+data class B(val a: Int)
+
+abstract class TestHandler: ActorHandler
+{
+
+    private lateinit var b:B
+
+    context(context: ActorContext)
+    override suspend fun preStart() {
+        b = B(Random(10).nextInt(1, 100))
+    }
+
+    context(context: ActorContext)
+    override suspend fun onMessage(message: Any, sender: ActorRef) {
+        with(b) {
+            testFunc()
+        }
+    }
+    context(context: ActorContext, b: B)
+    abstract fun testFunc()
+}
+
+
+class TestActor4 : TestHandler() {
+    context(context: ActorContext, b: B)
+    override fun testFunc() {
+        println("=== ${b.a}===${ref}")
+        bb()
+    }
+
+    context(b: B)
+    private fun bb() {
+        println("!!!=== ${b}===")
+    }
+}
 
 class A : CoroutineScope {
     private val job = SupervisorJob()
@@ -250,6 +287,13 @@ class ActorTest {
         println("main: done")
     }
 
+    @Test
+    fun test7(): Unit = runBlocking {
+        val  ref = SYSTEM.actorOf<TestActor4>()
+        SYSTEM.send(ref, "Hello")
+        delay(4000)
+    }
+
     companion object : CoroutineScope by CoroutineScope(Dispatchers.Default) {
 
         lateinit var SYSTEM: ActorSystem
@@ -261,6 +305,7 @@ class ActorTest {
             SYSTEM.register<TestActor>()
             SYSTEM.register<TestActor2>()
             SYSTEM.register<TestActor3>()
+            SYSTEM.register<TestActor4>()
 
             launch {
                 SYSTEM.notifications.collect { notification ->
