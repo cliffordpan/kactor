@@ -61,10 +61,12 @@ tasks.test {
     useJUnitPlatform()
 }
 
+
 kotlin {
     jvmToolchain(21)
     compilerOptions {
         freeCompilerArgs.addAll( "-Xjvm-default=all", "-Xcontext-parameters" )
+        languageVersion = org.jetbrains.kotlin.gradle.dsl.KotlinVersion.KOTLIN_2_2
     }
 }
 

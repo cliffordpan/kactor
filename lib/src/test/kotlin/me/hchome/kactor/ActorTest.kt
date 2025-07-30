@@ -36,7 +36,7 @@ class TestActor : ActorHandler, CoroutineScope by CoroutineScope(Dispatchers.IO)
             delay(1000)
             println("Task111: ${context.ref}")
         }
-
+        println("==============ref: ${ref.actorId}")
         println("Main: ${context.ref}")
         context.task {
             println("Task: ${context.ref}")

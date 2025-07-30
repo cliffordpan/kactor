@@ -7,47 +7,57 @@ import kotlinx.coroutines.CompletableDeferred
  */
 interface ActorHandler {
 
-    /**
-     * Ask handler
-     */
-    context(context:ActorContext)
-    suspend fun onAsk(message: Any, sender: ActorRef, callback: CompletableDeferred<in Any>) {}
+ context(context: ActorContext)
+ val ref: ActorRef
+  get() = context.ref
 
-    /**
-     * Receive handler
-     */
-    context(context:ActorContext)
-    suspend fun onMessage(message: Any, sender: ActorRef) {}
+ /**
+  * Ask handler
+  */
+ context(context: ActorContext)
+ suspend fun onAsk(message: Any, sender: ActorRef, callback: CompletableDeferred<in Any>) {
+ }
 
-    /**
-     * exception handler
-     */
-    context(context:ActorContext)
-    suspend fun onException(exception: Throwable, sender: ActorRef) {
-        throw exception
-    }
+ /**
+  * Receive handler
+  */
+ context(context: ActorContext)
+ suspend fun onMessage(message: Any, sender: ActorRef) {
+ }
 
-    /**
-     * Task exception handler
-     */
-    context(context:ActorContext)
-    fun onTaskException(taskInfo: TaskInfo, exception: Throwable) {}
+ /**
+  * exception handler
+  */
+ context(context: ActorContext)
+ suspend fun onException(exception: Throwable, sender: ActorRef) {
+  throw exception
+ }
 
-    /**
-     * Before the actor receiving and processing messages
-     */
-    context(context:ActorContext)
-    suspend fun preStart() {}
+ /**
+  * Task exception handler
+  */
+ context(context: ActorContext)
+ fun onTaskException(taskInfo: TaskInfo, exception: Throwable) {
+ }
 
-    /**
-     * After the actor stopped receiving messages
-     */
-    context(context:ActorContext)
-    suspend fun postStop() {}
+ /**
+  * Before the actor receiving and processing messages
+  */
+ context(context: ActorContext)
+ suspend fun preStart() {
+ }
 
-    /**
-     * Before the actor system destroys the actor
-     */
-    context(context:ActorContext)
-    fun preDestroy() {}
+ /**
+  * After the actor stopped receiving messages
+  */
+ context(context: ActorContext)
+ suspend fun postStop() {
+ }
+
+ /**
+  * Before the actor system destroys the actor
+  */
+ context(context: ActorContext)
+ fun preDestroy() {
+ }
 }
