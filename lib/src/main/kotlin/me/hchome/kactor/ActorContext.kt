@@ -117,14 +117,58 @@ interface ActorContext : Attributes, CoroutineScope {
     fun <T : ActorHandler> sendService(kClass: KClass<out T>, message: Any)
 
     /**
+     * Sends a prioritized message to the service actor identified by the given handler class.
+     * This ensures that the message is handled with higher priority compared to regular messages.
+     *
+     * @param T The type of the service actor handler.
+     * @param kClass The class reference of the service actor handler.
+     * @param message The message to be sent to the service actor.
+     */
+    fun <T : ActorHandler> sendServicePriority(kClass: KClass<out T>, message: Any)
+
+
+    /**
+     * Sends a prioritized message to the specified actor referenced by `ref`.
+     * This ensures that the message is handled with higher priority compared to regular messages.
+     *
+     * @param ref The reference of the actor to which the message should be sent.
+     * @param message The message to be sent to the actor.
+     */
+    fun sendActorPriority(ref: ActorRef, message: Any)
+
+    /**
      * Send a message to any actor
      */
     fun sendActor(ref: ActorRef, message: Any)
 
     /**
+     * Sends a prioritized message to all child actors of the current actor.
+     * This ensures that the message is processed with higher priority by the children.
+     *
+     * @param message The message to be sent to the child actors.
+     */
+    fun sendChildrenPriority(message: Any)
+
+    /**
      * Send a message to all children actors
      */
     fun sendChildren(message: Any)
+
+    /**
+     * send to parent priority
+     */
+    fun sendParentPriority(message: Any)
+
+    /**
+     * Sends a prioritized message to a specified child actor.
+     * Similar to `sendChild`, this ensures that the message is handled with higher priority
+     * within the child's message processing queue.
+     *
+     * @param childRef The reference to the child actor receiving the message.
+     * @param message The message to be sent to the child actor.
+     */
+   fun sendChildPriority(childRef: ActorRef, message: Any)
+
 
     /**
      * Send a message to a child actor
@@ -141,6 +185,15 @@ interface ActorContext : Attributes, CoroutineScope {
      * Send a message to the parent actor
      */
     fun sendParent(message: Any)
+
+    /**
+     * Sends a prioritized message to the actor itself.
+     * This ensures that the message is handled with higher priority
+     * in the actor's message processing queue.
+     *
+     * @param message The message to be sent to the actor itself.
+     */
+    fun sendSelfPriority(message: Any)
 
     /**
      * Send a message to the self-actor

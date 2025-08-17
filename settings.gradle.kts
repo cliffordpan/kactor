@@ -12,4 +12,4 @@ plugins {
 }
 
 rootProject.name = "kactor"
-include("lib")
+include("lib", "clustering")

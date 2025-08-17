@@ -183,6 +183,10 @@ internal class ActorSystemImpl(
         this[actorRef].send(message, sender)
     }
 
+    override fun sendPrioritized(actorRef: ActorRef, sender: ActorRef, message: Any) {
+        this[actorRef].sendPrioritized(message, sender)
+    }
+
     override fun <T : Any> ask(actorRef: ActorRef, sender: ActorRef, message: Any, timeout: Duration): Deferred<T> = async {
         val actor = this@ActorSystemImpl[actorRef]
         val deferred = CompletableDeferred<T>()

@@ -1,10 +1,12 @@
 [versions]
 kotlin = "2.2.0"
 coroutines = "1.10.1"
+jetcd = "0.8.5"
 
 [libraries]
 coroutines = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
 coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "coroutines" }
+jetcd = { module = "io.etcd:jetcd-core", version.ref = "jetcd" }
 
 [plugins]
 jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }

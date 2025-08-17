@@ -17,7 +17,7 @@ import kotlin.time.Duration
  * Implementation of [ActorContext] that provides access to the actor system and actor's context.
  * Open BaseActor's CoroutineScope to use it in the actor handler's methods.
  */
-internal data class ActorContextImpl(private val self: BaseActor, private val system: ActorSystem) : ActorContext,
+internal data class ActorContextImpl(private val self: BaseActor, private val system: ActorSystem, ) : ActorContext,
     Attributes by AttributesImpl(), CoroutineScope by self {
 
     override fun getService(kClass: KClass<out ActorHandler>): ActorRef = system.getService(kClass)
@@ -72,6 +72,85 @@ internal data class ActorContextImpl(private val self: BaseActor, private val sy
 
     override fun getChild(id: String): ActorRef {
         return children.firstOrNull { it.actorId.endsWith(id) } ?: ActorRef.Companion.EMPTY
+    }
+
+    override fun <T : ActorHandler> sendServicePriority(kClass: KClass<out T>, message: Any) {
+        val ref = ActorRef.ofService(kClass)
+        if (ref !in system) {
+            system.notifySystem(
+                self.ref, ActorRef.Companion.EMPTY,
+                "Target service $kClass is not found: $message",
+                ActorSystemNotificationMessage.NotificationType.ACTOR_EXCEPTION
+            )
+            return
+        }
+        system.sendPrioritized(ref, self.ref, message)
+    }
+
+    override fun sendActorPriority(ref: ActorRef, message: Any) {
+        try {
+            system.sendPrioritized(ref, self.ref, message)
+        } catch (e: IllegalStateException) {
+            system.notifySystem(
+                self.ref, ActorRef.Companion.EMPTY,
+                "Send a message to an empty actor $ref: $message",
+                ActorSystemNotificationMessage.NotificationType.MESSAGE_UNDELIVERED
+            )
+            throw ActorSystemException("Send a message to an empty actor $ref: $message", e)
+        }
+    }
+
+    override fun sendChildrenPriority(message: Any) {
+        if (self.singleton) {
+            system.notifySystem(
+                self.ref, ActorRef.Companion.EMPTY,
+                "Target children shouldn't be a service: $message",
+                ActorSystemNotificationMessage.NotificationType.ACTOR_EXCEPTION
+            )
+            return
+        }
+        if (self.childrenRefs.isEmpty()) {
+            system.notifySystem(
+                self.ref, ActorRef.Companion.EMPTY,
+                "Send a message to an empty children: $message",
+                ActorSystemNotificationMessage.NotificationType.MESSAGE_UNDELIVERED
+            )
+            return
+        }
+        self.childrenRefs.forEach {
+            system.sendPrioritized(it, self.ref, message)
+        }
+    }
+
+    override fun sendParentPriority(message: Any) {
+        if (self.hasParent) {
+            system.sendPrioritized(self.parent, self.ref, message)
+        } else {
+            system.notifySystem(
+                self.ref, ActorRef.Companion.EMPTY,
+                "Send a message to an empty parent: $message",
+                ActorSystemNotificationMessage.NotificationType.MESSAGE_UNDELIVERED
+            )
+        }
+    }
+
+    override fun sendChildPriority(childRef: ActorRef, message: Any) {
+        if (self.singleton) {
+            return
+        }
+        self.childrenRefs.firstOrNull { it == childRef }?.also {
+            system.sendPrioritized(it, self.ref, message)
+        } ?: run {
+            system.notifySystem(
+                self.ref, ActorRef.Companion.EMPTY,
+                "Send a message to an empty child $childRef: $message",
+                ActorSystemNotificationMessage.NotificationType.MESSAGE_UNDELIVERED
+            )
+        }
+    }
+
+    override fun sendSelfPriority(message: Any) {
+        system.sendPrioritized(self.ref, self.ref, message)
     }
 
     override fun sendChild(childRef: ActorRef, message: Any) {

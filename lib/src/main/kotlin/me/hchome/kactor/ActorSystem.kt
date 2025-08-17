@@ -81,6 +81,16 @@ interface ActorSystem : Supervisor, ActorHandlerRegistry, DisposableHandle {
     fun destroyActor(actorRef: ActorRef)
 
     /**
+     * Sends a prioritized message to the specified actor. This method ensures that the message
+     * is handled with higher priority in the actor's message processing queue compared to other messages.
+     *
+     * @param actorRef The reference to the target actor that will receive the message.
+     * @param sender The reference to the actor sending the message.
+     * @param message The message to be sent with prioritized handling.
+     */
+    fun sendPrioritized(actorRef: ActorRef, sender: ActorRef, message: Any)
+
+    /**
      * send a message to an actor
      * @param actorRef actor reference
      * @param sender sender actor reference

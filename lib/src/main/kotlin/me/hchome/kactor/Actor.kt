@@ -16,6 +16,15 @@ interface Actor : Supervisor, DisposableHandle {
     operator fun contains(ref: ActorRef): Boolean
 
     /**
+     * Sends a prioritized message to the actor. Unlike the regular `send` method, this method
+     * ensures that the message is handled with higher priority in the actor's message processing queue.
+     *
+     * @param message The message to be sent to the actor.
+     * @param sender The reference to the sender actor. Defaults to an empty actor reference if not provided.
+     */
+    fun sendPrioritized(message: Any, sender: ActorRef = ActorRef.EMPTY)
+
+    /**
      * Send a message to the actor
      * @param message message
      * @param sender sender actor reference
