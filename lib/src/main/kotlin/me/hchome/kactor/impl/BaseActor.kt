@@ -194,7 +194,12 @@ internal class BaseActor(
     private fun processingMessage() {
         launch {
             with(context) {
-                handler.preStart()
+                try {
+                    handler.preStart()
+                } catch (e: Throwable) {
+                    fatalHandling(e, "Start actor failed", ref)
+                    return@with
+                }
                 mailbox.consumeEach { wrapper ->
                     val message = wrapper.message
                     val sender = wrapper.sender
@@ -214,7 +219,12 @@ internal class BaseActor(
                         fatalHandling(e, message, sender)
                     }
                 }
-                handler.postStop()
+                try {
+                    handler.postStop()
+                } catch (e: Throwable) {
+                    fatalHandling(e, "Stop actor failed", ref)
+                    return@with
+                }
             }
         }
     }

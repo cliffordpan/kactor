@@ -103,16 +103,18 @@ publishing {
             artifact(tasks.named("sourcesJar").get())
             artifact(tasks.named("javadocJar").get())
         }
-        repositories {
-            maven {
-                name = "S3"
-                url = uri(getExtraString("aws.s3BucketUrl")?.let { "$it/releases" }
-                    ?: error("S3 bucket URL is not configured."))
-                credentials(AwsCredentials::class) {
-                    accessKey = getExtraString("aws.accessKeyId") ?: error("AWS access key ID is not configured.")
-                    secretKey =
-                        getExtraString("aws.secretAccessKey") ?: error("AWS secret access key is not configured.")
-                }
+
+    }
+
+    repositories {
+        maven {
+            name = "S3"
+            url = uri(getExtraString("aws.s3BucketUrl")?.let { "$it/releases" }
+                ?: error("S3 bucket URL is not configured."))
+            credentials(AwsCredentials::class) {
+                accessKey = getExtraString("aws.accessKeyId") ?: error("AWS access key ID is not configured.")
+                secretKey =
+                    getExtraString("aws.secretAccessKey") ?: error("AWS secret access key is not configured.")
             }
         }
     }
