@@ -1,3 +1,4 @@
+@file:Suppress("unused")
 package me.hchome.kactor.impl
 
 import kotlinx.coroutines.CompletableDeferred
@@ -11,6 +12,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.consumeEach
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -31,7 +33,6 @@ import me.hchome.kactor.isNotEmpty
 import kotlin.collections.forEach
 import kotlin.coroutines.AbstractCoroutineContextElement
 import kotlin.coroutines.CoroutineContext
-import kotlin.coroutines.coroutineContext
 import kotlin.reflect.KClass
 import kotlin.time.Duration
 import kotlin.uuid.ExperimentalUuidApi
@@ -58,7 +59,7 @@ internal class BaseActor(
         Channel<MessageWrapper>(actorConfig.capacity, actorConfig.onBufferOverflow, ::undeliveredMessageHandler)
 
     private val handlerScope: ActorHandlerScope = { h: ActorHandler, message: Any, sender: ActorRef ->
-        with(context) {
+        context(context) {
             h.onMessage(message, sender)
         }
     }
@@ -69,15 +70,19 @@ internal class BaseActor(
             ActorSystemNotificationMessage.NotificationType.ACTOR_TASK_EXCEPTION, e
         )
         val info = ctx[TaskInfo] ?: return@CoroutineExceptionHandler
-        with(context) {
+        context(context) {
             handler.onTaskException(info, e)
         }
     }
 
     private val askHandlerScope: AskActorHandlerScope = { h: ActorHandler, message: Any, sender: ActorRef, cb ->
-        with(context) {
+        context(context) {
             h.onAsk(message, sender, cb)
         }
+    }
+
+    private val uncaughtExceptionHandler = CoroutineExceptionHandler { _, e ->
+        launch { unCaughtFatalHandling(e) }
     }
 
     override val ref: ActorRef
@@ -86,12 +91,12 @@ internal class BaseActor(
     val parent: ActorRef
         get() = parentActor?.ref ?: ActorRef.EMPTY
 
-    val childrenRefs: MutableSet<ActorRef> = mutableSetOf<ActorRef>()
+    val childrenRefs: MutableSet<ActorRef> = mutableSetOf()
     private val context = ActorContextImpl(this@BaseActor, actorSystem)
     private val holder = ActorContextHolder(context)
     private val job = SupervisorJob()
     override val coroutineContext: CoroutineContext
-        get() = dispatcher + job + holder
+        get() = dispatcher + job + holder + uncaughtExceptionHandler
 
 
     val hasParent: Boolean
@@ -193,12 +198,12 @@ internal class BaseActor(
     @Suppress("UNCHECKED_CAST")
     private fun processingMessage() {
         launch {
-            with(context) {
+            context(context) {
                 try {
                     handler.preStart()
                 } catch (e: Throwable) {
                     fatalHandling(e, "Start actor failed", ref)
-                    return@with
+                    return@launch
                 }
                 mailbox.consumeEach { wrapper ->
                     val message = wrapper.message
@@ -223,7 +228,7 @@ internal class BaseActor(
                     handler.postStop()
                 } catch (e: Throwable) {
                     fatalHandling(e, "Stop actor failed", ref)
-                    return@with
+                    return@launch
                 }
             }
         }
@@ -278,6 +283,10 @@ internal class BaseActor(
 
     }
 
+    private suspend fun unCaughtFatalHandling(e: Throwable) {
+        fatalHandling(e, "Uncaught fatal message", ref)
+    }
+
     private suspend fun fatalHandling(e: Throwable, message: Any, sender: ActorRef) {
         actorSystem.notifySystem(
             sender, ref, "Fatal message: $message",
@@ -314,7 +323,7 @@ internal class BaseActor(
             mailbox.close()
         }
         // notify handler cleanup
-        with(context) {
+        context(context) {
             handler.preDestroy()
         }
 
@@ -347,7 +356,7 @@ private class ActorContextHolder(val context: ActorContext) : AbstractCoroutineC
  * context function get actor context from coroutine context
  */
 suspend fun ActorHandler.context(): ActorContext =
-    coroutineContext[ActorContextHolder]?.context ?: throw ActorSystemException("No context")
+    currentCoroutineContext()[ActorContextHolder]?.context ?: throw ActorSystemException("No context")
 
 /**
  * Create actor
