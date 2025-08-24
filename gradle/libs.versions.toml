@@ -7,6 +7,7 @@ jetcd = "0.8.5"
 coroutines = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
 coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "coroutines" }
 jetcd = { module = "io.etcd:jetcd-core", version.ref = "jetcd" }
+jetcd-test = { module = "io.etcd:jetcd-test", version.ref = "jetcd" }
 
 [plugins]
 jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }

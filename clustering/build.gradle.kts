@@ -48,6 +48,7 @@ dependencies {
     testImplementation(kotlin("test"))
     testImplementation(kotlin("stdlib"))
     testImplementation(kotlin("reflect"))
+    testImplementation(libs.jetcd.test)
     testImplementation(libs.coroutines)
     testImplementation(libs.coroutines.test)
 }
