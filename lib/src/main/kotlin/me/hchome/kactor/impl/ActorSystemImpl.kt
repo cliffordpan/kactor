@@ -178,7 +178,7 @@ internal class ActorSystemImpl(
     }
 
     override fun destroyActor(actorRef: ActorRef) {
-        this.remove(actorRef).dispose()
+        this.remove(actorRef)?.dispose()
         notifySystem(
             actorRef,
             ActorRef.Companion.EMPTY,
