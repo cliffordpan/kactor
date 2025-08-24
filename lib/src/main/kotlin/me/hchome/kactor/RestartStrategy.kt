@@ -42,5 +42,5 @@ interface Supervisor {
     /**
      * snapshot the child actor attributes
      */
-    suspend fun snapshot(child: ActorRef): Attributes
+    suspend fun snapshot(child: ActorRef): Attributes?
 }

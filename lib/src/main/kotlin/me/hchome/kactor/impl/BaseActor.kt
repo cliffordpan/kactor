@@ -238,8 +238,12 @@ internal class BaseActor(
         actorSystem.recover(ref, attributes)
     }
 
-    override suspend fun snapshot(child: ActorRef): Attributes {
-        return actorSystem.snapshot(ref)
+    override suspend fun snapshot(child: ActorRef): Attributes? {
+        return try {
+            actorSystem.snapshot(ref)
+        } catch (_: Throwable) {
+            null
+        }
     }
 
     override suspend fun supervise(
@@ -253,7 +257,9 @@ internal class BaseActor(
                 val attributes = snapshot(child)
                 actorSystem.destroyActor(child)
                 val ref = actorSystem.actorOfSuspend(child.rawId, ref, child.handler)
-                recover(ref, attributes)
+                if (attributes != null) {
+                    recover(ref, attributes)
+                }
             }
 
             is AllForOne -> {
@@ -265,7 +271,9 @@ internal class BaseActor(
                 children.forEach {
                     val attr = snapshot(it)
                     val childRef = actorSystem.actorOfSuspend(it.rawId, ref, it.handler)
-                    recover(childRef, attr)
+                    if (attr != null) {
+                        recover(childRef, attr)
+                    }
                 }
             }
 
