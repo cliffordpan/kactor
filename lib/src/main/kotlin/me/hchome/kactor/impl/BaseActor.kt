@@ -1,3 +1,4 @@
+@file:Suppress("unused")
 package me.hchome.kactor.impl
 
 import kotlinx.coroutines.CompletableDeferred
@@ -82,18 +83,22 @@ internal class BaseActor(
         }
     }
 
+    private val uncaughtExceptionHandler = CoroutineExceptionHandler { _, e ->
+        launch { unCaughtFatalHandling(e) }
+    }
+
     override val ref: ActorRef
         get() = ActorRef(kClass, id)
 
     val parent: ActorRef
         get() = parentActor?.ref ?: ActorRef.EMPTY
 
-    val childrenRefs: MutableSet<ActorRef> = mutableSetOf<ActorRef>()
+    val childrenRefs: MutableSet<ActorRef> = mutableSetOf()
     private val context = ActorContextImpl(this@BaseActor, actorSystem)
     private val holder = ActorContextHolder(context)
 
     override val coroutineContext: CoroutineContext
-        get() = dispatcher + SupervisorJob() + holder
+        get() = dispatcher + SupervisorJob() + holder + uncaughtExceptionHandler
 
 
     val hasParent: Boolean
@@ -216,6 +221,13 @@ internal class BaseActor(
         launch {
             context(context) {
                 handler.preStart()
+            context(context) {
+                try {
+                    handler.preStart()
+                } catch (e: Throwable) {
+                    fatalHandling(e, "Start actor failed", ref)
+                    return@launch
+                }
                 mailbox.consumeEach { wrapper ->
                     val message = wrapper.message
                     val sender = wrapper.sender
@@ -235,7 +247,12 @@ internal class BaseActor(
                         fatalHandling(e, message, sender)
                     }
                 }
-                handler.postStop()
+                try {
+                    handler.postStop()
+                } catch (e: Throwable) {
+                    fatalHandling(e, "Stop actor failed", ref)
+                    return@launch
+                }
             }
         }
     }
@@ -287,6 +304,10 @@ internal class BaseActor(
             }
         }
 
+    }
+
+    private suspend fun unCaughtFatalHandling(e: Throwable) {
+        fatalHandling(e, "Uncaught fatal message", ref)
     }
 
     private suspend fun fatalHandling(e: Throwable, message: Any, sender: ActorRef) {
