@@ -217,10 +217,7 @@ internal class BaseActor(
                 mailbox.send(wrapper)
             }
         }
-
         launch {
-            context(context) {
-                handler.preStart()
             context(context) {
                 try {
                     handler.preStart()
