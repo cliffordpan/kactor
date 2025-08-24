@@ -29,9 +29,9 @@ internal class LocalActorRegistry: ActorRegistry{
         return actors.containsKey(ref)
     }
 
-    override fun remove(ref: ActorRef): Actor {
-        if(!actors.containsKey(ref)) throw IllegalArgumentException("Actor does not exist")
-        return actors.remove(ref)!!
+    override fun remove(ref: ActorRef): Actor? {
+//        if(!actors.containsKey(ref)) throw IllegalArgumentException("Actor does not exist")
+        return actors.remove(ref)
     }
 
     override fun clear() {
