@@ -87,15 +87,19 @@ internal class ActorSystemImpl(
                     it.ref.actorId == "$kClass" &&
                     it.singleton &&
                     kClass.isInstance(it.ref.handler)
-        }?.ref ?: ActorRef.Companion.EMPTY
+        }?.ref ?: ActorRef.EMPTY
     }
 
     override suspend fun recover(child: ActorRef, attributes: Attributes) {
         this[child].recover(attributes)
     }
 
-    override suspend fun snapshot(child: ActorRef): Attributes {
-        return this[child].snapshot()
+    override suspend fun snapshot(child: ActorRef): Attributes? {
+        return try {
+            this[child].snapshot()
+        } catch (_: Throwable) {
+            null
+        }
     }
 
     override suspend fun supervise(
@@ -112,7 +116,9 @@ internal class ActorSystemImpl(
                 } else {
                     actorOfSuspend(child.rawId, ActorRef.EMPTY, child.handler)
                 }
-                recover(new, attributes)
+                if(attributes != null) {
+                    recover(new, attributes)
+                }
             }
 
             is Resume -> {}
@@ -128,7 +134,9 @@ internal class ActorSystemImpl(
                 } else {
                     actorOfSuspend(child.rawId, ActorRef.EMPTY, child.handler)
                 }
-                recover(new, attributes)
+                if(attributes != null) {
+                    recover(new, attributes)
+                }
             }
         }
     }
@@ -170,7 +178,7 @@ internal class ActorSystemImpl(
     }
 
     override fun destroyActor(actorRef: ActorRef) {
-        this.remove(actorRef).dispose()
+        this.remove(actorRef)?.dispose()
         notifySystem(
             actorRef,
             ActorRef.Companion.EMPTY,
@@ -187,24 +195,25 @@ internal class ActorSystemImpl(
         this[actorRef].sendPrioritized(message, sender)
     }
 
-    override fun <T : Any> ask(actorRef: ActorRef, sender: ActorRef, message: Any, timeout: Duration): Deferred<T> = async {
-        val actor = this@ActorSystemImpl[actorRef]
-        val deferred = CompletableDeferred<T>()
-        try {
-            withTimeout(timeout) {
-                actor.ask<T>(message, sender, deferred)
-                deferred.await()
+    override fun <T : Any> ask(actorRef: ActorRef, sender: ActorRef, message: Any, timeout: Duration): Deferred<T> =
+        async {
+            val actor = this@ActorSystemImpl[actorRef]
+            val deferred = CompletableDeferred<T>()
+            try {
+                withTimeout(timeout) {
+                    actor.ask<T>(message, sender, deferred)
+                    deferred.await()
+                }
+            } catch (e: TimeoutCancellationException) {
+                notifySystem(
+                    sender,
+                    actorRef,
+                    "Actor timeout",
+                    ActorSystemNotificationMessage.NotificationType.ACTOR_TIMEOUT,
+                )
+                throw ActorSystemException("Actor timeout")
             }
-        } catch (e: TimeoutCancellationException) {
-            notifySystem(
-                sender,
-                actorRef,
-                "Actor timeout",
-                ActorSystemNotificationMessage.NotificationType.ACTOR_TIMEOUT,
-            )
-            throw ActorSystemException("Actor timeout")
         }
-    }
 
     @OptIn(ExperimentalUuidApi::class)
     private fun buildActorId(

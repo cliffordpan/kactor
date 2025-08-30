@@ -10,7 +10,7 @@ interface ActorRegistry {
 
     operator fun contains(ref: ActorRef): Boolean
 
-    fun remove(ref: ActorRef): Actor
+    fun remove(ref: ActorRef): Actor?
 
     fun clear()
 }
